@@ -1,4 +1,5 @@
 use parse::*;
+use serialize::*;
 
 use std::cmp::PartialEq;
 use std::collections::HashMap;
@@ -241,8 +242,8 @@ impl<T> Parser<Id<T>> for Id<T> {
 }
 
 impl<T> ToJSON for Id<T> {
-    fn to_json(&self) -> JSON {
-        JSON::String(self.to_string())
+    fn to_json(&self, parts: &mut BinaryParts) -> JSON {
+        self.to_string().to_json(parts)
     }
 }
 
@@ -259,8 +260,8 @@ impl<T> Deserialize for Id<T> {
 }
 
 impl<T, U> ToJSON for HashMap<Id<U>, T> where T: ToJSON {
-    fn to_json(&self) -> JSON {
-        JSON::Object(self.iter().map(|(k, v)| (k.to_string(), T::to_json(v))).collect())
+    fn to_json(&self, parts: &mut BinaryParts) -> JSON {
+        JSON::Object(self.iter().map(|(k, v)| (k.to_string(), v.to_json(parts))).collect())
     }
 }
 

@@ -21,6 +21,9 @@ pub mod api;
 /// Tools for parsing from JSON.
 pub mod parse;
 
+/// Tools for converting values to a format that may be sent.
+pub mod serialize;
+
 /// Selecting one or more devices. Exposed through the API.
 pub mod selector;
 

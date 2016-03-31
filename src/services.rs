@@ -7,6 +7,7 @@
 //! these data structures are read.
 
 use parse::*;
+use serialize::*;
 use values::*;
 pub use util::{ Exactly, Id, AdapterId, ServiceId, KindId, TagId, VendorId };
 
@@ -97,20 +98,15 @@ impl Service {
 }
 
 impl ToJSON for Service {
-    fn to_json(&self) -> JSON {
-        let mut source = vec![
-            ("id", self.id.to_json()),
-            ("adapter", self.adapter.to_json()),
-            ("tags", self.tags.to_json()),
-            ("properties", self.properties.to_json()),
-            ("getters", self.getters.to_json()),
-            ("setters", self.setters.to_json()),
-        ];
-
-        let map = source.drain(..)
-            .map(|(key, value)| (key.to_owned(), value))
-            .collect();
-        JSON::Object(map)
+    fn to_json(&self, parts: &mut BinaryParts) -> JSON {
+        vec![
+            ("id", self.id.to_json(parts)),
+            ("adapter", self.adapter.to_json(parts)),
+            ("tags", self.tags.to_json(parts)),
+            ("properties", self.properties.to_json(parts)),
+            ("getters", self.getters.to_json(parts)),
+            ("setters", self.setters.to_json(parts)),
+        ].to_json(parts)
     }
 }
 
@@ -284,13 +280,14 @@ pub enum ChannelKind {
     /// ```
     /// use foxbox_taxonomy::services::*;
     /// use foxbox_taxonomy::parse::*;
+    /// use foxbox_taxonomy::serialize::*;
     ///
     /// let source = r#""TakeSnapshot""#;
     ///
     /// let parsed = ChannelKind::from_str(source).unwrap();
     /// assert_eq!(parsed, ChannelKind::TakeSnapshot);
     ///
-    /// let serialized = parsed.to_json();
+    /// let serialized = parsed.to_json(&mut MultiPart::new());
     /// assert_eq!(serialized.as_string().unwrap(), "TakeSnapshot");
     /// ```
     TakeSnapshot,
@@ -398,27 +395,27 @@ impl Parser<ChannelKind> for ChannelKind {
 }
 
 impl ToJSON for ChannelKind {
-    fn to_json(&self) -> JSON {
+    fn to_json(&self, parts: &mut BinaryParts) -> JSON {
         use self::ChannelKind::*;
         match *self {
-            Ready => JSON::String("Ready".to_owned()),
-            OnOff => JSON::String("OnOff".to_owned()),
-            OpenClosed => JSON::String("OpenClosed".to_owned()),
-            CurrentTime => JSON::String("CurrentTime".to_owned()),
-            CurrentTimeOfDay => JSON::String("CurrentTimeOfDay".to_owned()),
-            RemainingTime => JSON::String("RemainingTime".to_owned()),
-            OvenTemperature => JSON::String("OvenTemperature".to_owned()),
-            AddThinkerbellRule => JSON::String("AddThinkerbellRule".to_owned()),
-            RemoveThinkerbellRule => JSON::String("RemoveThinkerbellRule".to_owned()),
-            ThinkerbellRuleSource => JSON::String("ThinkerbellRuleSource".to_owned()),
-            TakeSnapshot => JSON::String("TakeSnapshot".to_owned()),
+            Ready => "Ready".to_json(parts),
+            OnOff => "OnOff".to_json(parts),
+            OpenClosed => "OpenClosed".to_json(parts),
+            CurrentTime => "CurrentTime".to_json(parts),
+            CurrentTimeOfDay => "CurrentTimeOfDay".to_json(parts),
+            RemainingTime => "RemainingTime".to_json(parts),
+            OvenTemperature => "OvenTemperature".to_json(parts),
+            AddThinkerbellRule => "AddThinkerbellRule".to_json(parts),
+            RemoveThinkerbellRule => "RemoveThinkerbellRule".to_json(parts),
+            ThinkerbellRuleSource => "ThinkerbellRuleSource".to_json(parts),
+            TakeSnapshot => "TakeSnapshot".to_json(parts),
             Extension { ref vendor, ref adapter, ref kind, ref typ } => {
                 vec![
-                    ("vendor", vendor.to_json()),
-                    ("adapter", adapter.to_json()),
-                    ("kind", kind.to_json()),
-                    ("typ", typ.to_json()),
-                ].to_json()
+                    ("vendor", vendor.to_json(parts)),
+                    ("adapter", adapter.to_json(parts)),
+                    ("kind", kind.to_json(parts)),
+                    ("typ", typ.to_json(parts)),
+                ].to_json(parts)
             }
         }
     }
@@ -508,51 +505,43 @@ pub struct Channel<IO> where IO: IOMechanism {
 }
 
 impl ToJSON for Channel<Getter> {
-    fn to_json(&self) -> JSON {
+    fn to_json(&self, parts: &mut BinaryParts) -> JSON {
         let mut source = vec![
-            ("id", self.id.to_json()),
-            ("adapter", self.adapter.to_json()),
-            ("tags", self.tags.to_json()),
-            ("service", self.service.to_json()),
-            ("mechanism", JSON::String("getter".to_owned())),
-            ("kind", self.mechanism.kind.to_json()),
+            ("id", self.id.to_json(parts)),
+            ("adapter", self.adapter.to_json(parts)),
+            ("tags", self.tags.to_json(parts)),
+            ("service", self.service.to_json(parts)),
+            ("mechanism", "getter".to_json(parts)),
+            ("kind", self.mechanism.kind.to_json(parts)),
         ];
         if let Some(ref ts) = self.last_seen {
-            source.push(("last_seen", ts.to_json()))
+            source.push(("last_seen", ts.to_json(parts)))
         }
         if let Some(ref ts) = self.mechanism.updated {
-            source.push(("updated", ts.to_json()));
+            source.push(("updated", ts.to_json(parts)));
         }
-
-        let map = source.drain(..)
-            .map(|(key, value)| (key.to_owned(), value))
-            .collect();
-        JSON::Object(map)
+        source.to_json(parts)
     }
 }
 
 
 impl ToJSON for Channel<Setter> {
-    fn to_json(&self) -> JSON {
+    fn to_json(&self, parts: &mut BinaryParts) -> JSON {
         let mut source = vec![
-            ("id", self.id.to_json()),
-            ("adapter", self.adapter.to_json()),
-            ("tags", self.tags.to_json()),
-            ("service", self.service.to_json()),
-            ("mechanism", JSON::String("setter".to_owned())),
-            ("kind", self.mechanism.kind.to_json()),
+            ("id", self.id.to_json(parts)),
+            ("adapter", self.adapter.to_json(parts)),
+            ("tags", self.tags.to_json(parts)),
+            ("service", self.service.to_json(parts)),
+            ("mechanism", "setter".to_json(parts)),
+            ("kind", self.mechanism.kind.to_json(parts)),
         ];
         if let Some(ref ts) = self.last_seen {
-            source.push(("last_seen", ts.to_json()))
+            source.push(("last_seen", ts.to_json(parts)))
         }
         if let Some(ref ts) = self.mechanism.updated {
-            source.push(("updated", ts.to_json()));
+            source.push(("updated", ts.to_json(parts)));
         }
-
-        let map = source.drain(..)
-            .map(|(key, value)| (key.to_owned(), value))
-            .collect();
-        JSON::Object(map)
+        source.to_json(parts)
     }
 }
 
