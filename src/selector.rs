@@ -244,21 +244,21 @@ impl ServiceSelector {
         }
         // If any of the getter selectors doesn't find a getter,
         // we don't match.
-        let getters_fail = self.getters.iter().find(|selector| {
+        let getters_fail = self.getters.iter().any(|selector| {
             !service.has_getters(|channel| {
                 selector.matches(&self.tags, channel)
             })
-        }).is_some();
+        });
         if getters_fail {
             return false;
         }
         // If any of the setter selectors doesn't find a setter,
         // we don't match.
-        let setters_fail = self.setters.iter().find(|selector| {
+        let setters_fail = self.setters.iter().any(|selector| {
             !service.has_setters(|channel| {
                 selector.matches(&self.tags, channel)
             })
-        }).is_some();
+        });
         if setters_fail {
             return false;
         }
