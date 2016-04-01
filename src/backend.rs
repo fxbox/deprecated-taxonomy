@@ -6,6 +6,7 @@ use transact::InsertInMap;
 use api::{ Error, InternalError, TargetMap, Targetted, WatchEvent };
 use selector::*;
 use services::*;
+use tag_storage::TagStorage;
 use values::*;
 
 use sublock::atomlock::*;
@@ -14,6 +15,7 @@ use transformable_channels::mpsc::*;
 use std::collections::{ HashMap, HashSet };
 use std::collections::hash_map::Entry;
 use std::hash::{ Hash, Hasher };
+use std::path::PathBuf;
 use std::ops::{ Deref };
 use std::sync::{ Arc, Mutex };
 use std::sync::atomic::{ AtomicBool, Ordering };
@@ -365,6 +367,12 @@ pub struct State {
     /// Information on whether the lock holding the state is open/closed,
     /// mutable/immutable.
     liveness: Arc<Liveness>,
+
+    /// The path to the database used to persist tags.
+    /// We don't keep track on the database itself since it won't see high load:
+    /// - We read all tags once per lifetime of the manager.
+    /// - We write occasionaly when adding or removing tags.
+    db_path: Option<PathBuf>,
 }
 
 impl State {
@@ -548,7 +556,7 @@ impl State {
 }
 
 impl State {
-    pub fn new(liveness: &Arc<Liveness>) -> Self {
+    pub fn new(liveness: &Arc<Liveness>, db_path: Option<PathBuf>) -> Self {
         State {
             liveness: liveness.clone(),
             adapter_by_id: HashMap::new(),
@@ -556,6 +564,7 @@ impl State {
             getter_by_id: HashMap::new(),
             setter_by_id: HashMap::new(),
             watchers: Arc::new(Mutex::new(WatchMap::new(liveness))),
+            db_path: db_path,
        }
     }
 
@@ -624,6 +633,35 @@ impl State {
                 }
             };
         let id = service.id.clone();
+
+        // Synchronize the tags with the database.
+        {
+            if let Some(ref path) = self.db_path {
+                let store = TagStorage::new(&path);
+
+                // Firstly, add the default tags to the database.
+                let mut default_tags = vec![];
+                for tag in service.tags.borrow_mut().deref() {
+                    default_tags.push(tag.clone());
+                }
+
+                if let Err(err) = store.add_tags(&id, &default_tags) {
+                    return Err(Error::InternalError(InternalError::GenericError(format!("{}", err))));
+                }
+
+                // Secondly, update the service's tag set with the full set from the database.
+                let tags = match store.get_tags_for(&id) {
+                    Err(err) => return Err(Error::InternalError(InternalError::GenericError(format!("{}", err)))),
+                    Ok(tags) => tags
+                };
+
+                let mut tag_set = service.tags.borrow_mut();
+                for tag in &tags {
+                    let _ = tag_set.insert(tag.clone());
+                }
+            }
+        }
+
         let service = Arc::new(SubCell::new(&self.liveness, service));
         let insert_in_adapters =
             match InsertInMap::start(&mut services_for_this_adapter, vec![(id.clone(), service.clone())]) {
@@ -823,6 +861,13 @@ impl State {
         self.with_services(selectors, |service| {
             let service = service.borrow_mut();
             let mut tag_set = service.tags.borrow_mut();
+
+            if let Some(ref path) = self.db_path {
+                let store = TagStorage::new(&path);
+                // TODO: decide how to deal with errors.
+                store.add_tags(&service.id, &tags).unwrap_or_else(|_ /* err */| {});
+            }
+
             for tag in &tags {
                 let _ = tag_set.insert(tag.clone());
             }
@@ -836,6 +881,13 @@ impl State {
         self.with_services(selectors, |service| {
             let service = service.borrow_mut();
             let mut tag_set = service.tags.borrow_mut();
+
+            if let Some(ref path) = self.db_path {
+                let store = TagStorage::new(&path);
+                // TODO: decide how to deal with errors.
+                store.remove_tags(&service.id, &tags).unwrap_or_else(|_ /* err */| {});
+            }
+
             for tag in &tags {
                 let _ = tag_set.remove(&tag);
             }
@@ -860,9 +912,16 @@ impl State {
         let mut size = 0;
         let mut channels = vec![];
         {
+            let db_path = self.db_path.clone();
             Self::with_channels_mut(selectors, &mut self.getter_by_id, |mut data| {
                 // This channel has changed, we may need to update watches.
                 if data.insert_tags(&tags) {
+                    if let Some(ref path) = db_path {
+                        let store = TagStorage::new(&path);
+                        // TODO: decide how to deal with errors.
+                        store.add_tags(&data.id, &tags).unwrap_or_else(|_ /* err */| {});
+                    }
+
                     channels.push(data.id.clone());
                 }
                 size += 1;
@@ -873,8 +932,14 @@ impl State {
 
     pub fn add_setter_tags(&mut self, selectors: Vec<SetterSelector>, tags: Vec<Id<TagId>>) -> usize {
         let mut result = 0;
+        let db_path = self.db_path.clone();
         Self::with_channels_mut(selectors, &mut self.setter_by_id, |mut data| {
             data.insert_tags(&tags);
+            if let Some(ref path) = db_path {
+                let store = TagStorage::new(&path);
+                // TODO: decide how to deal with errors.
+                store.add_tags(&data.id, &tags).unwrap_or_else(|_ /* err */| {});
+            }
             result += 1;
         });
         result
@@ -882,8 +947,14 @@ impl State {
 
     pub fn remove_getter_tags(&mut self, selectors: Vec<GetterSelector>, tags: Vec<Id<TagId>>) -> usize {
         let mut result = 0;
+        let db_path = self.db_path.clone();
         Self::with_channels_mut(selectors, &mut self.getter_by_id, |mut data| {
             data.remove_tags(&tags);
+            if let Some(ref path) = db_path {
+                let store = TagStorage::new(&path);
+                // TODO: decide how to deal with errors.
+                store.remove_tags(&data.id, &tags).unwrap_or_else(|_ /* err */| {});
+            }
             Self::aux_getter_may_need_unregistration(&mut data, false);
             result += 1;
         });
@@ -891,8 +962,14 @@ impl State {
     }
     pub fn remove_setter_tags(&mut self, selectors: Vec<SetterSelector>, tags: Vec<Id<TagId>>) -> usize {
         let mut result = 0;
+        let db_path = self.db_path.clone();
         Self::with_channels_mut(selectors, &mut self.setter_by_id, |mut data| {
             data.remove_tags(&tags);
+            if let Some(ref path) = db_path {
+                let store = TagStorage::new(&path);
+                // TODO: decide how to deal with errors.
+                store.remove_tags(&data.id, &tags).unwrap_or_else(|_ /* err */| {});
+            }
             result += 1;
         });
         result
@@ -1163,5 +1240,3 @@ impl State {
         }
     }
 }
-
-

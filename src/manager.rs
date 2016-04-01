@@ -44,7 +44,7 @@ impl AdapterManager {
         // The code should build only if AdapterManager implements Sync.
         is_sync::<AdapterManager>();
 
-        let state = Arc::new(MainLock::new(|liveness| State::new(liveness)));
+        let state = Arc::new(MainLock::new(|liveness| State::new(liveness, None)));
         let tx_watch = Arc::new(Mutex::new(Self::handle_watches(Arc::downgrade(&state))));
         AdapterManager {
             back_end: state,
