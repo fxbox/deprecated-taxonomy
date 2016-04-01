@@ -13,6 +13,7 @@
 //!
 //!
 
+use serialize::*;
 use services::*;
 use selector::*;
 pub use util::{ ResultMap, TargetMap, Targetted };
@@ -57,14 +58,14 @@ pub enum Error {
 }
 
 impl ToJSON for Error {
-    fn to_json(&self) -> JSON {
+    fn to_json(&self, parts: &mut BinaryParts) -> JSON {
         let mut serializer = Serializer::new();
         match self.serialize(&mut serializer) {
             // FIXME: I don't think that this can explode, but there doesn't seem to
             // be any way to check :/
             Ok(()) => serializer.unwrap(),
             Err(_) =>
-                vec![("Internal error while serializing", "")].to_json()
+                vec![("Internal error while serializing", "")].to_json(parts)
         }
     }
 }

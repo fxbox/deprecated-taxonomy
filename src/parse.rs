@@ -1,12 +1,8 @@
 //! Utilities for defining a JSON parser.
 
-use util::Id;
-
 use std::cell::RefCell;
-use std::collections::{ HashMap, HashSet };
 use std::error::Error as StdError;
 use std::fmt::{ Display, Debug, Error as FmtError, Formatter };
-use std::hash::Hash;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -352,106 +348,6 @@ impl<T> Parser<Arc<T>> for Arc<T> where T: Parser<T> {
     }
     fn parse(path: Path, source: &mut JSON) -> Result<Self, ParseError> {
         Ok(Arc::new(try!(T::parse(path, source))))
-    }
-}
-
-pub trait ToJSON {
-    fn to_json(&self) -> JSON;
-}
-
-impl ToJSON for String {
-    fn to_json(&self) -> JSON {
-        JSON::String(self.clone())
-    }
-}
-
-impl ToJSON for bool {
-    fn to_json(&self) -> JSON {
-        JSON::Bool(*self)
-    }
-}
-
-impl ToJSON for f64 {
-    fn to_json(&self) -> JSON {
-        JSON::F64(*self)
-    }
-}
-
-impl ToJSON for usize {
-    fn to_json(&self) -> JSON {
-        JSON::U64(*self as u64)
-    }
-}
-
-impl ToJSON for JSON {
-    fn to_json(&self) -> JSON {
-        self.clone()
-    }
-}
-
-impl<T> ToJSON for HashSet<T> where T: ToJSON + Eq + Hash {
-    fn to_json(&self) -> JSON {
-        JSON::Array((*self).iter().map(T::to_json).collect())
-    }
-}
-
-impl<T> ToJSON for HashMap<String, T> where T: ToJSON {
-    fn to_json(&self) -> JSON {
-        JSON::Object(self.iter().map(|(k, v)| (k.clone(), T::to_json(v))).collect())
-    }
-}
-
-impl<T> ToJSON for Vec<T> where T: ToJSON {
-    fn to_json(&self) -> JSON {
-        JSON::Array(self.iter().map(|x| x.to_json()).collect())
-    }
-}
-
-impl<'a, T> ToJSON for Vec<(&'a str, T)> where T: ToJSON {
-    fn to_json(&self) -> JSON {
-        JSON::Object(self.iter().map(|&(ref k, ref v)| {
-            ((*k).to_owned(), v.to_json())
-        }).collect())
-    }
-}
-
-impl <'a> ToJSON for &'a str {
-    fn to_json(&self) -> JSON {
-        JSON::String((*self).to_owned())
-    }
-}
-
-impl<'a, T> ToJSON for &'a T where T: ToJSON {
-    fn to_json(&self) -> JSON {
-        (**self).to_json()
-    }
-}
-
-impl<K, T, V> ToJSON for HashMap<Id<K>, Result<T, V>> where T: ToJSON, V: ToJSON {
-    fn to_json(&self) -> JSON {
-        JSON::Object(self.iter().map(|(k, result)| {
-            let k = k.to_string();
-            let result = match *result {
-                Ok(ref ok) => ok.to_json(),
-                Err(ref err) => vec![("Error", err)].to_json()
-            };
-            (k, result)
-        }).collect())
-    }
-}
-
-impl<T> ToJSON for Option<T> where T: ToJSON {
-    fn to_json(&self) -> JSON {
-        match *self {
-            None => JSON::Null,
-            Some(ref result) => result.to_json()
-        }
-    }
-}
-
-impl ToJSON for () {
-    fn to_json(&self) -> JSON {
-        JSON::Null
     }
 }
 
