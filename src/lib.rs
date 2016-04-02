@@ -1,5 +1,5 @@
 //! This crate defines the high-level API for accessing Connected Devices.
-#![feature(custom_derive, plugin)]
+#![feature(custom_derive, plugin, stmt_expr_attributes)]
 #![plugin(serde_macros)]
 #![plugin(clippy)]
 #[macro_use]
@@ -7,6 +7,8 @@ extern crate lazy_static;
 
 extern crate chrono;
 extern crate libc;
+#[macro_use]
+extern crate log;
 extern crate rusqlite;
 extern crate serde;
 extern crate serde_json;

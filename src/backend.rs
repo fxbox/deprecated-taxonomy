@@ -17,8 +17,19 @@ use std::collections::hash_map::Entry;
 use std::hash::{ Hash, Hasher };
 use std::path::PathBuf;
 use std::ops::{ Deref };
-use std::sync::{ Arc, Mutex };
+use std::sync::{ Arc, Mutex, Weak };
 use std::sync::atomic::{ AtomicBool, Ordering };
+
+// In release build, log an error and continue.
+// In debug build, log an error and panic.
+macro_rules! log_debug_assert {
+    ($cond:expr, $($arg:tt)*) => {
+        if !$cond {
+            error!($($arg)*);
+            panic!($($arg)*);
+        }
+    };
+}
 
 /// A request to a bunch of adapters.
 ///
@@ -28,15 +39,15 @@ use std::sync::atomic::{ AtomicBool, Ordering };
 pub type AdapterRequest<T> = HashMap<Id<AdapterId>, (Arc<Adapter>, T)>;
 
 /// A request to an adapter, for performing a `fetch` operation.
-pub type FetchRequest = AdapterRequest<Vec<(Id<Getter>, Type)>>;
+pub type FetchRequest = AdapterRequest<HashMap<Id<Getter>, Type>>;
 
 /// A request to an adapter, for performing a `send` operation.
 pub type SendRequest = AdapterRequest<(HashMap<Id<Setter>, Value>, ResultMap<Id<Setter>, (), Error>)>;
 
 /// A request to an adapter, for performing a `watch` operation.
-pub type WatchRequest = AdapterRequest<(Vec<(Id<Getter>, Option<Range>)>, Arc<WatcherData>)>;
+pub type WatchRequest = AdapterRequest<(Vec<(Id<Getter>, Option<Range>)>, Weak<WatcherData>)>;
 
-pub type WatchGuardCommit = Vec<(Arc<WatcherData>, Vec<(Id<Getter>, Box<AdapterWatchGuard>)>)>;
+pub type WatchGuardCommit = Vec<(Weak<WatcherData>, Vec<(Id<Getter>, Box<AdapterWatchGuard>)>)>;
 
 /// Information on a service.
 ///
@@ -193,7 +204,7 @@ struct GetterData {
     service_tags: Arc<SubCell<HashSet<Id<TagId>>>>,
 
     /// Watchers that currently watch this channel.
-    watchers: HashMap<WatchKey, Arc<WatcherData>>,
+    watchers: HashMap<WatchKey, Weak<WatcherData>>,
 }
 impl SelectedBy<GetterSelector> for GetterData {
     fn matches(&self, selector: &GetterSelector) -> bool {
@@ -262,6 +273,9 @@ impl Deref for SetterData {
 }
 
 /// All the information on a currently registered watch.
+///
+/// A single watch may concern any number of getter channels, including channels not registered
+/// yet. The WatcherData is materialized as a WatchGuard in userland.
 pub struct WatcherData {
     /// The criteria for watching.
     watch: TargetMap<GetterSelector, Exactly<Range>>,
@@ -464,7 +478,16 @@ impl State {
         let mut keys_to_drop = vec![];
         {
             for (key, ref watcher) in &getter_data.watchers {
-                // We need to disconnect the watcher if either it is being removed
+                let watcher = match watcher.upgrade() {
+                    Some(watcher) => watcher,
+                    None => {
+                        // The watcher has already been removed.
+                        keys_to_drop.push(*key);
+                        continue;
+                    }
+                };
+
+                // We need to disconnect the watcher if either the channel is being removed
                 // or it doesn't match anymore any of the selectors for the watchers
                 // that were watching it.
                 let should_disconnect = is_being_removed
@@ -500,9 +523,8 @@ impl State {
         for id in getters {
             match self.getter_by_id.get_mut(&id) {
                 None => {
-                    debug_assert!(false, "I have just added/modified getter {:?} but I can't \
+                    log_debug_assert!(false, "I have just added/modified getter {:?} but I can't \
                                             find it anymore", id);
-                    // FIXME: Logging would be nice.
                 },
                 Some(getter_data) => {
                     let mut getter_data = getter_data.borrow_mut();
@@ -999,7 +1021,7 @@ impl State {
     pub fn prepare_fetch_values(&self, selectors: Vec<GetterSelector>) -> FetchRequest {
         // First, prepare the list of actual getters and group it by adapter.
         // Once we have done this, we can release the lock.
-        let mut per_adapter = HashMap::new();
+        let mut per_adapter : FetchRequest = HashMap::new();
         let adapter_by_id = &self.adapter_by_id;
         Self::with_channels(selectors, &self.getter_by_id, |data| {
             use std::collections::hash_map::Entry::*;
@@ -1009,20 +1031,20 @@ impl State {
                 Vacant(entry) => {
                     let adapter = match adapter_by_id.get(&data.channel.adapter) {
                         None => {
-                            debug_assert!(false, "Internal inconsistency: Could not find adapter {:?}", id);
-                            // FIXME: Logging would be nice.
+                            log_debug_assert!(false, "Internal inconsistency: Could not find adapter {:?}", id);
                             return;
                         },
                         Some(ref adapter_data) => {
                             adapter_data.adapter.clone()
                         }
                     };
-                    entry.insert((adapter, vec![(id, typ)]));
+                    let mut source = vec![(id, typ)];
+                    entry.insert((adapter, source.drain(..).collect()));
                 }
                 Occupied(mut entry) => {
-                    entry.get_mut().1.push((id, typ));
+                    entry.get_mut().1.insert(id, typ);
                 }
-            }
+            };
         });
         per_adapter
     }
@@ -1062,8 +1084,7 @@ impl State {
                         }
                         let adapter = match self.adapter_by_id.get(&data.channel.adapter) {
                             None => {
-                                debug_assert!(false, "Internal inconsistency: could not find adapter {}", data.channel.adapter);
-                                // FIXME: Logging would be nice.
+                                log_debug_assert!(false, "Internal inconsistency: could not find adapter {}", data.channel.adapter);
                                 return
                             }
                             Some(adapter) => adapter
@@ -1094,33 +1115,48 @@ impl State {
         per_adapter: &mut WatchRequest)
     {
         use std::collections::hash_map::Entry::*;
-        getter_data.watchers.insert(watcher.key, watcher.clone());
+
+        let id = getter_data.id.clone();
+        let adapter = getter_data.adapter.clone();
+
+        let insert_in_getter =
+            match InsertInMap::start(&mut getter_data.watchers, vec![ ( watcher.key, Arc::downgrade(watcher) )] ) {
+            Err(_) => {
+                log_debug_assert!(false, "Internal inconsistency: This watcher is already watching this getter.");
+                return
+            }
+            Ok(transaction) => transaction
+        };
 
         let range = match *filter {
             Exactly::Exactly(ref range) => Some(range.clone()),
             Exactly::Always => None,
-            _ => return // Don't watch data, just topology.
+            _ => {
+                insert_in_getter.commit();
+                return // Don't watch data, just topology.
+            }
         };
 
-        let data = (getter_data.id.clone(), range);
-        let adapter = getter_data.adapter.clone();
         match per_adapter.entry(adapter) {
             Vacant(entry) => {
                 let adapter = match adapter_by_id.get(&getter_data.channel.adapter) {
                     None => {
-                        debug_assert!(false, "Internal inconsistency: Could not find adapter {:?}",
+                        log_debug_assert!(false, "Internal inconsistency: Could not find adapter {:?}",
                             getter_data.channel.adapter);
-                        // FIXME: Logging would be nice.
                         return;
                     },
                     Some(ref adapter_data) => {
                         adapter_data.adapter.clone()
                     }
                 };
-                entry.insert((adapter, (vec![data], watcher.clone())));
+                entry.insert((adapter, (vec![(id, range)], Arc::downgrade(watcher))));
             },
-            Occupied(mut entry) => (entry.get_mut().1).0.push(data),
+            Occupied(mut entry) => {
+                (entry.get_mut().1).0.push((id, range));
+            }
         }
+
+        insert_in_getter.commit();
     }
 
     pub fn prepare_channel_watch(&mut self, mut watch: TargetMap<GetterSelector, Exactly<Range>>,
@@ -1158,7 +1194,7 @@ impl State {
 
         // Remove `key` from `watchers`. This will prevent the watcher from being registered
         // automatically with any new getter.
-        let mut watcher_data = match self.watchers.lock().unwrap().remove(key) {
+        let watcher_data = match self.watchers.lock().unwrap().remove(key) {
             None => {
                 // Attempting to unregister a watcher that has not been added yet.
                 // This can happen in case of race if `stop_watch` is executed before
@@ -1169,7 +1205,7 @@ impl State {
             Some(watcher_data) => watcher_data
         };
 
-        debug_assert!(watcher_data.is_dropped.load(Ordering::Relaxed));
+        log_debug_assert!(watcher_data.is_dropped.load(Ordering::Relaxed), "The watcher should have been dropped by now.");
 
         // Remove the watcher from all getters.
         for getter_id in watcher_data.guards.borrow().keys() {
@@ -1182,11 +1218,9 @@ impl State {
             }
         }
 
-        // Sanity check
-        debug_assert!(Arc::get_mut(&mut watcher_data).is_some(),
-            "This watcher is being unregistered but we still have strong references to it. That's not good.");
-
-        // At this stage, `watcher_data` has no reference left. All its `guards` will be dropped.
+        // At this stage, one getter may still have a strong reference to watcher_data, if it has
+        // just been upgraded in `start_watch`. However, this reference will disappear soon. Once
+        // the last reference has disappeared, all `guards` will be dropped.
     }
 
     /// Start watching a set of channels.
@@ -1210,11 +1244,25 @@ impl State {
         //   by checking whether `is_dropped` is true.
 
         let mut to_add = vec![];
-        for (_, (adapter, (request, watch_data))) in per_adapter.drain() {
+        for (_, (adapter, (request, weak_watch_data))) in per_adapter.drain() {
+            let watch_data = match weak_watch_data.upgrade() {
+                None => {
+                    // The watch_data has already been dropped, nothing to do.
+                    continue
+                }
+                Some(watch_data) => watch_data
+            };
             let is_dropped = watch_data.is_dropped.clone();
+            if is_dropped.load(Ordering::Relaxed) {
+                // The WatchGuard has already been dropped.
+                continue
+            }
             let on_ok = watch_data.on_event.lock().unwrap().filter_map(move |event| {
                 if is_dropped.load(Ordering::Relaxed) {
                     // The WatchGuard has already been dropped.
+                    // We want to stop propagating messages immediately, even if unregistration
+                    // is not necessarily complete yet. Unregistration will be completed after
+                    // the call to `stop_watch`.
                     return None;
                 }
                 Some(match event {
@@ -1245,7 +1293,7 @@ impl State {
                     Ok(guard) => guards.push((id, guard))
                 }
             }
-            to_add.push((watch_data, guards));
+            to_add.push((weak_watch_data, guards));
         }
         to_add
     }
@@ -1254,8 +1302,10 @@ impl State {
     pub fn register_ongoing_watch(&mut self, mut ongoing: WatchGuardCommit)
     {
         for (watch_data, mut guards) in ongoing.drain(..) {
-            for (id, guard) in guards.drain(..) {
-                watch_data.push_guard(id, guard)
+            if let Some(ref watch_data) = watch_data.upgrade() {
+                for (id, guard) in guards.drain(..) {
+                    watch_data.push_guard(id, guard)
+                }
             }
         }
     }
