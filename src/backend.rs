@@ -704,6 +704,22 @@ impl State {
         }
     }
 
+    #[allow(unused_assignments)] // For `let mut vec  = vec![];`
+    fn sync_channel_tags_with_store<T: IOMechanism>(&mut self, mut channel: Channel<T>) {
+        if let Some(ref path) = self.db_path {
+            let store = TagStorage::new(&path);
+            // Add static tags from this getter to the db.
+            let mut vec  = vec![];
+            vec = channel.tags.clone().into_iter().collect();
+            store.add_tags(&channel.id, &vec).unwrap_or_else(|_ /* err */| {});
+
+            // And then add all the tags for this channel.
+            if let Ok(all_tags) = store.get_tags_for(&channel.id) {
+                channel.insert_tags(&all_tags);
+            }
+        }
+    }
+
     /// Add a getter to the system. Typically, this is called by the adapter when a new
     /// service has been detected/configured. Some services may gain/lose getters at
     /// runtime depending on their configuration.
@@ -718,6 +734,8 @@ impl State {
     /// registered, or a channel with the same identifier is already registered.
     /// In either cases, this method reverts all its changes.
     pub fn add_getter(&mut self, getter: Channel<Getter>) -> Result<WatchRequest, Error> {
+        self.sync_channel_tags_with_store(getter.clone());
+
         let id = getter.id.clone();
         {
             let getter_by_id = &mut self.getter_by_id;
@@ -793,6 +811,8 @@ impl State {
     /// registered, or a channel with the same identifier is already registered.
     /// In either cases, this method reverts all its changes.
     pub fn add_setter(&mut self, setter: Channel<Setter>) -> Result<(), Error> {
+        self.sync_channel_tags_with_store(setter.clone());
+
         let service = match self.service_by_id.get_mut(&setter.service) {
             None => return Err(Error::InternalError(InternalError::NoSuchService(setter.service.clone()))),
             Some(service) => service
