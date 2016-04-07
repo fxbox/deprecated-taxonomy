@@ -179,8 +179,10 @@ pub enum WatchEvent {
     },
 }
 
-/// User identifier that will be passed from the REST API handlers to the
-/// adapters.
+/// User identifier that will be given to adapter's getters and setters if such
+/// identification is required for the specific request.
+/// For REST API requests, the user identifier is taken from the authentication
+/// header.
 #[derive(Debug, Clone, PartialEq)]
 pub enum User {
     None,
@@ -584,7 +586,9 @@ pub trait API: Send {
     ///
     /// `GET /api/v1/channels/get`
     ///
-    /// This call supports one or more GetterSelector.
+    /// This call supports one or more GetterSelector and gets the identifier
+    /// of the user making the request if the request itself requires
+    /// authentication.
     ///
     /// ```
     /// # extern crate serde;
@@ -617,8 +621,8 @@ pub trait API: Send {
 
     /// Send a bunch of values to a set of channels.
     ///
-    /// Sending values to several setters of the same service in a single call will generally
-    /// be much faster than calling this method several times.
+    /// Sending values to several setters of the same service in a single call
+    /// will generally be much faster than calling this method several times.
     ///
     /// # REST API
     ///
@@ -629,6 +633,9 @@ pub trait API: Send {
     /// This call supports one or more objects with the following fields:
     /// - select (Service Selector | array of ServiceSelector) - the setters to which the value must be sent
     /// - value (Value) - the value to send
+    ///
+    /// Plus the identifier of the user sending the values if the request
+    /// requires authentication.
     ///
     /// ```
     /// # extern crate serde;
