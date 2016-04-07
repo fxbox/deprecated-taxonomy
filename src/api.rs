@@ -3,13 +3,13 @@
 //!
 //! This API is provided as Traits to be implemented:
 //!
-//! - by the low-level layers of the FoxBox, including the adapters;
+//! - by the low-level layers of `FoxBox`, including the adapters;
 //! - by test suites and tools that need to simulate connected devices.
 //!
 //! In turn, this API is used to implement:
 //!
-//! - the public-facing REST and WebSocket API;
-//! - the rules API (ThinkerBell).
+//! - the public-facing REST and `WebSocket` API;
+//! - the rules API (`ThinkerBell`).
 //!
 //!
 
@@ -696,7 +696,7 @@ pub trait API: Send {
     ///
     /// The watcher is disconnected once the `WatchGuard` returned by this method is dropped.
     ///
-    /// # WebSocket API
+    /// # `WebSocket` API
     ///
     /// `/api/v1/channels/watch`
     fn watch_values(& self, watch: TargetMap<GetterSelector, Exactly<Range>>,

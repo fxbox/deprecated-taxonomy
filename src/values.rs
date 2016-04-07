@@ -428,7 +428,7 @@ impl Deserialize for OpenClosed {
 }
 
 /// A temperature. Internal representation may be either Fahrenheit or
-/// Celcius. The FoxBox adapters are expected to perform conversions
+/// Celcius. The `FoxBox` adapters are expected to perform conversions
 /// to the format requested by their devices.
 ///
 /// # JSON
@@ -532,7 +532,7 @@ impl PartialOrd for Temperature {
     }
 }
 
-/// A color. Internal representation may vary. The FoxBox adapters are
+/// A color. Internal representation may vary. The `FoxBox` adapters are
 /// expected to perform conversions to the format requested by their
 /// device.
 #[derive(Debug, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]

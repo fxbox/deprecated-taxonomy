@@ -21,7 +21,7 @@ use std::thread;
 use sublock::atomlock::*;
 use transformable_channels::mpsc::*;
 
-/// An implementation of the AdapterManager.
+/// An implementation of the `AdapterManager`.
 ///
 /// This implementation is `Sync` and supports any number of concurrent
 /// readers *or* a single writer.
@@ -359,7 +359,7 @@ impl API for AdapterManager {
 
 /// Operations related to watching.
 ///
-/// As the adapter side of operations can be slow, we want to keep them out of the MainLock. On the
+/// As the adapter side of operations can be slow, we want to keep them out of the `MainLock`. On the
 /// other hand, we want to make sure that they take place in a predictable order, to avoid race
 /// conditions. So we delegate them to a specialized background thread.
 enum WatchOp {

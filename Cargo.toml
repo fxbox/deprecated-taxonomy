@@ -5,7 +5,8 @@ authors = ["David Rajchenbach-Teller <dteller@mozilla.com>"]
 
 [dependencies]
 chrono = "0.2.19"
-clippy = "0.0.61"
+# TODO: Use semantic version once 0.0.62 is out.
+clippy = {git = "https://github.com/Manishearth/rust-clippy.git", rev = "c1c935d"}
 lazy_static = "^0.1"
 log = "0.3"
 serde = "0.7.0"

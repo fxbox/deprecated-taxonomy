@@ -31,7 +31,7 @@ macro_rules! log_debug_assert {
 
 /// A request to a bunch of adapters.
 ///
-/// Whenever possible, the AdapterManager attempts to place calls to the Adapters
+/// Whenever possible, the `AdapterManager` attempts to place calls to the Adapters
 /// after it has released its locks. An `AdapterRequest` represents stuff that has
 /// been extracted from the maps while they were locked for use after unlocking.
 pub type AdapterRequest<T> = HashMap<Id<AdapterId>, (Arc<Adapter>, T)>;
@@ -273,7 +273,7 @@ impl Deref for SetterData {
 /// All the information on a currently registered watch.
 ///
 /// A single watch may concern any number of getter channels, including channels not registered
-/// yet. The WatcherData is materialized as a WatchGuard in userland.
+/// yet. The `WatcherData` is materialized as a `WatchGuard` in userland.
 pub struct WatcherData {
     /// The criteria for watching.
     watch: TargetMap<GetterSelector, Exactly<Range>>,
@@ -281,16 +281,16 @@ pub struct WatcherData {
     /// The listener for this watch.
     on_event: Mutex<Box<ExtSender<WatchEvent>>>,
 
-    /// A unique key used to locate the WatcherData in the
-    /// WatchMap.
+    /// A unique key used to locate the `WatcherData` in the
+    /// `WatchMap`.
     key: WatchKey,
 
     /// The individual guard for each getter currently watched.
     guards: SubCell<HashMap<Id<Getter>, Vec<Box<AdapterWatchGuard>>>>,
 
-    /// `true` once the WatchGuard has dropped. In this
+    /// `true` once the `WatchGuard` has dropped. In this
     /// case, the `WatcherData` will shortly be removed
-    /// from the WatchMap.
+    /// from the `WatchMap`.
     is_dropped: Arc<AtomicBool>,
 }
 
@@ -383,7 +383,7 @@ pub struct State {
 
 impl State {
     /// Auxiliary function to remove a service, once the mutex has been acquired.
-    /// Clients should rather use AdapterManager::remove_service.
+    /// Clients should rather use `AdapterManager::remove_service`.
     fn aux_remove_service(&mut self, id: &Id<ServiceId>) -> Result<Id<AdapterId>, Error> {
         let (adapter, service) = match self.service_by_id.remove(&id) {
             None => return Err(Error::InternalError(InternalError::NoSuchService(id.clone()))),
@@ -413,9 +413,9 @@ impl State {
                 // Ensure that we release the borrow before calling `cb`.
                 let borrow = &*service.borrow();
                 let view = ServiceView::new(borrow);
-                matches = selectors.iter().find(|selector| {
+                matches = selectors.iter().any(|selector| {
                     selector.matches(&view)
-                }).is_some();
+                });
             }
             if matches {
                 cb(service);
@@ -429,9 +429,9 @@ impl State {
               V: SelectedBy<S>,
     {
         for (_, data) in map.iter() {
-            let matches = selectors.iter().find(|selector| {
+            let matches = selectors.iter().any(|selector| {
                 data.borrow().matches(selector)
-            }).is_some();
+            });
             if matches {
                 cb(&*data.borrow());
             }
@@ -444,9 +444,9 @@ impl State {
               V: SelectedBy<S>,
     {
         for (_, data) in map.iter_mut() {
-            let matches = selectors.iter().find(|selector| {
+            let matches = selectors.iter().any(|selector| {
                 data.borrow().matches(selector)
-            }).is_some();
+            });
             if matches {
                 cb(&mut *data.borrow_mut());
             }
@@ -466,6 +466,8 @@ impl State {
         result
     }
 
+    // Can't use 2 any's embedded: &targetted cannot be moved out of borrowed content
+    #[allow(search_is_some)]
     fn aux_getter_may_need_unregistration(getter_data: &mut GetterData, is_being_removed: bool) {
         let mut keys_to_drop = vec![];
         {
@@ -484,9 +486,9 @@ impl State {
                 // that were watching it.
                 let should_disconnect = is_being_removed
                     || watcher.watch.iter().find(|&targetted| {
-                        targetted.select.iter().find(|selector| {
+                        targetted.select.iter().any(|selector| {
                             !getter_data.matches(selector)
-                        }).is_some()
+                        })
                     }).is_some();
                 if !should_disconnect {
                     // The channel hasn't stopped matching this watcher.
@@ -528,9 +530,9 @@ impl State {
                             continue;
                         }
                         for targetted in &watcher.watch {
-                            let matches = targetted.select.iter().find(|selector| {
+                            let matches = targetted.select.iter().any(|selector| {
                                 getter_data.matches(selector)
-                            }).is_some();
+                            });
                             if !matches {
                                 // The channel doesn't match this watcher.
                                 continue;
