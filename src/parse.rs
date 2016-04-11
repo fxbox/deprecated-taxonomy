@@ -14,7 +14,7 @@ use serde_json::error;
 use serde::ser::{ Serialize, Serializer };
 use serde_json;
 pub use serde_json::value::Value as JSON;
-use serde::de::{ Deserializer, Error };
+use serde::de::Error;
 
 /// Utility function: Make sure that we have consumed all the fields of an object.
 pub fn check_fields(path: Path, json: &JSON) -> Result<(), ParseError> {
@@ -35,6 +35,13 @@ pub struct Path {
     buf: Rc<RefCell<String>>,
     len: usize,
 }
+
+impl Default for Path {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Path {
     /// Create an empty Path.
     pub fn new() -> Self {
@@ -166,7 +173,7 @@ impl Serialize for JSONError {
     fn serialize<S>(&self, serializer: &mut S) -> Result<(), S::Error>
         where S: Serializer
     {
-        serializer.visit_str(&format!("{:?}", self))
+        serializer.serialize_str(&format!("{:?}", self))
     }
 }
 

@@ -286,7 +286,7 @@ impl<T, U> ToJSON for HashMap<Id<U>, T> where T: ToJSON {
 ///
 /// impl Deserialize for Foo {
 ///   fn deserialize<D>(deserializer: &mut D) -> Result<Self, D::Error> where D: Deserializer {
-///     deserializer.visit_string(TrivialEnumVisitor::new(|source| {
+///     deserializer.deserialize_string(TrivialEnumVisitor::new(|source| {
 ///       match source {
 ///         "A" => Ok(Foo::A),
 ///         "B" => Ok(Foo::B),
@@ -339,7 +339,7 @@ impl<T> Visitor for TrivialEnumVisitor<T> where T: Deserialize {
         use std::str;
         match str::from_utf8(v) {
             Ok(s) => self.parse(s),
-            Err(_) => Err(E::type_mismatch(DeserializationType::String)),
+            Err(_) => Err(E::invalid_type(DeserializationType::String)),
         }
     }
 
@@ -348,7 +348,7 @@ impl<T> Visitor for TrivialEnumVisitor<T> where T: Deserialize {
     {
         match String::from_utf8(v) {
             Ok(s) => self.parse(&s),
-            Err(_) => Err(DeserializationError::type_mismatch(DeserializationType::String)),
+            Err(_) => Err(DeserializationError::invalid_type(DeserializationType::String)),
         }
     }
 }
