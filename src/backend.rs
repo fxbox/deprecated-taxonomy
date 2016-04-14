@@ -358,9 +358,6 @@ impl WatchMap {
     }
 }
 
-
-
-
 pub struct State {
     /// Adapters, indexed by their id.
     adapter_by_id: HashMap<Id<AdapterId>, AdapterData>,
@@ -726,6 +723,8 @@ impl State {
         }
     }
 
+    /// Ensure that the set of tags on a channel is coherent with the database state for
+    /// this channel's id.
     #[allow(unused_assignments)] // For `let mut vec  = vec![];`
     fn sync_channel_tags_with_store<T: IOMechanism>(&mut self, mut channel: Channel<T>) {
         if let Some(ref path) = self.db_path {

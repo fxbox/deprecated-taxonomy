@@ -1,4 +1,5 @@
 extern crate foxbox_taxonomy;
+extern crate libc;
 extern crate transformable_channels;
 
 use foxbox_taxonomy::manager::*;
@@ -11,6 +12,7 @@ use foxbox_taxonomy::values::*;
 use transformable_channels::mpsc::*;
 
 use std::collections::{ HashMap, HashSet };
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
 
@@ -20,9 +22,28 @@ fn target_map<K, T>(mut source: Vec<(Vec<K>, T)>) -> TargetMap<K, T> where K: Cl
     source.drain(..).map(|(v, t)| Targetted::new(v, t)).collect()
 }
 
+pub fn get_db_environment() -> PathBuf {
+    use libc::getpid;
+    use std::thread;
+    let tid = format!("{:?}", thread::current()).replace("(", "+").replace(")", "+");
+    let s = format!("./tagstore_db_test-{}-{}.sqlite", unsafe { getpid() }, tid.replace("/", "42"));
+    println!("get_db_environment {}", s);
+    PathBuf::from(s)
+}
+
+pub fn remove_test_db() {
+    use std::fs;
+
+    let dbfile = get_db_environment();
+    match fs::remove_file(dbfile.clone()) {
+        Err(e) => panic!("Error {} cleaning up {}", e, dbfile.display()),
+        _ => assert!(true)
+    }
+}
+
 #[test]
 fn test_add_remove_adapter() {
-    let manager = AdapterManager::new();
+    let manager = AdapterManager::new(None);
     let id_1 = Id::new("id 1");
     let id_2 = Id::new("id 2");
 
@@ -60,7 +81,7 @@ fn test_add_remove_adapter() {
 #[test]
 fn test_add_remove_services() {
     println!("");
-    let manager = AdapterManager::new();
+    let manager = AdapterManager::new(None);
     let id_1 = Id::<AdapterId>::new("adapter id 1");
     let id_2 = Id::<AdapterId>::new("adapter id 2");
     let id_3 = Id::<AdapterId>::new("adapter id 3");
@@ -363,7 +384,7 @@ fn test_add_remove_services() {
 #[test]
 fn test_add_remove_tags() {
     println!("");
-    let manager = AdapterManager::new();
+    let manager = AdapterManager::new(None);
     let id_1 = Id::<AdapterId>::new("adapter id 1");
     let id_2 = Id::<AdapterId>::new("adapter id 2");
 
@@ -710,7 +731,7 @@ fn test_add_remove_tags() {
 #[test]
 fn test_fetch() {
     println!("");
-    let manager = AdapterManager::new();
+    let manager = AdapterManager::new(None);
     let id_1 = Id::<AdapterId>::new("adapter id 1");
     let id_2 = Id::<AdapterId>::new("adapter id 2");
 
@@ -893,7 +914,7 @@ fn test_fetch() {
 #[test]
 fn test_send() {
     println!("");
-    let manager = AdapterManager::new();
+    let manager = AdapterManager::new(None);
     let id_1 = Id::<AdapterId>::new("adapter id 1");
     let id_2 = Id::<AdapterId>::new("adapter id 2");
 
@@ -1104,7 +1125,7 @@ fn test_send() {
 #[test]
 fn test_watch() {
     println!("");
-    let manager = AdapterManager::new();
+    let manager = AdapterManager::new(None);
     let id_1 = Id::<AdapterId>::new("adapter id 1");
     let id_2 = Id::<AdapterId>::new("adapter id 2");
 
