@@ -2,6 +2,9 @@
 #![feature(custom_derive, plugin, stmt_expr_attributes)]
 #![plugin(serde_macros)]
 #![plugin(clippy)]
+// To prevent clippy being noisy with derive(...)
+#![allow(used_underscore_binding)]
+
 #[macro_use]
 extern crate lazy_static;
 
@@ -51,9 +54,10 @@ pub mod adapter_utils;
 /// any error.
 pub mod transact;
 
-/// Implementation of a fake adapter, controlled entirely programmatically. Designed to be used
-/// as a component of tests.
-pub mod fake_adapter;
-
 /// Implementation of the database storing tags.
 pub mod tag_storage;
+
+/// Implementation of a fake adapter, controlled entirely programmatically. Designed to be used
+/// as a component of tests.
+#[test]
+pub mod fake_adapter;
