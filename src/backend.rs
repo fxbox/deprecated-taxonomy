@@ -899,10 +899,6 @@ impl State {
 
     pub fn add_service_tags(&mut self, selectors: Vec<ServiceSelector>, tags: Vec<Id<TagId>>) -> usize {
         let mut result = 0;
-        /*let store = match self.db_path {
-            Some(ref path) => Some(TagStorage::new(&path)),
-            None => None
-        };*/
 
         self.with_services(selectors, |service, store| {
             let service = service.borrow_mut();
