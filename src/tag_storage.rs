@@ -16,7 +16,7 @@ fn escape<T>(string: &Id<T>) -> String {
 }
 
 /// Creates a unique key for a (id, tag) tuple.
-/// SQlite integers are i64 so we turn the hashed u64 into a String...
+/// `SQlite` integers are i64 so we turn the hashed u64 into a String...
 fn create_key<T>(id: &Id<T>, tag: &Id<TagId>) -> String {
     use std::hash::{ Hash, Hasher, SipHasher };
 

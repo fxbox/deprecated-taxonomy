@@ -406,11 +406,18 @@ impl State {
         Ok(adapter)
     }
 
-    fn with_services<F>(&self, selectors: Vec<ServiceSelector>, mut cb: F) where F: FnMut(&Arc<SubCell<ServiceData>>) {
+    fn with_services<F>(&self, selectors: Vec<ServiceSelector>, mut cb: F)
+        where F: FnMut(&Arc<SubCell<ServiceData>>, &Option<TagStorage>) {
+
+        let store = match self.db_path {
+            Some(ref path) => Some(TagStorage::new(&path)),
+            None => None
+        };
+
         for service in self.service_by_id.values() {
             // All services match when we have no selectors.
             if selectors.is_empty() {
-                cb(service);
+                cb(service, &store);
                 continue;
             }
             let matches;
@@ -423,7 +430,7 @@ impl State {
                 });
             }
             if matches {
-                cb(service);
+                cb(service, &store);
             }
         };
     }
@@ -665,19 +672,8 @@ impl State {
         // Synchronize the tags with the database.
         {
             if let Some(ref path) = self.db_path {
+                // Update the service's tag set with the full set from the database.
                 let store = TagStorage::new(&path);
-
-                // Firstly, add the default tags to the database.
-                let mut default_tags = vec![];
-                for tag in service.tags.borrow_mut().deref() {
-                    default_tags.push(tag.clone());
-                }
-
-                if let Err(err) = store.add_tags(&id, &default_tags) {
-                    return Err(Error::InternalError(InternalError::GenericError(format!("{}", err))));
-                }
-
-                // Secondly, update the service's tag set with the full set from the database.
                 let tags = match store.get_tags_for(&id) {
                     Err(err) => return Err(Error::InternalError(InternalError::GenericError(format!("{}", err)))),
                     Ok(tags) => tags
@@ -738,12 +734,7 @@ impl State {
     fn sync_channel_tags_with_store<T: IOMechanism>(&mut self, mut channel: Channel<T>) {
         if let Some(ref path) = self.db_path {
             let store = TagStorage::new(&path);
-            // Add static tags from this getter to the db.
-            let mut vec  = vec![];
-            vec = channel.tags.clone().into_iter().collect();
-            store.add_tags(&channel.id, &vec).unwrap_or_else(|_ /* err */| {});
-
-            // And then add all the tags for this channel.
+            // Add all the tags for this channel.
             if let Ok(all_tags) = store.get_tags_for(&channel.id) {
                 channel.insert_tags(&all_tags);
             }
@@ -900,7 +891,7 @@ impl State {
         // This implementation is not nearly optimal, but it should be sufficient in a system
         // with relatively few services.
         let mut result = Vec::new();
-        self.with_services(selectors, |service| {
+        self.with_services(selectors, |service, _| {
             result.push(service.borrow().as_service())
         });
         result
@@ -908,14 +899,18 @@ impl State {
 
     pub fn add_service_tags(&mut self, selectors: Vec<ServiceSelector>, tags: Vec<Id<TagId>>) -> usize {
         let mut result = 0;
-        self.with_services(selectors, |service| {
+        /*let store = match self.db_path {
+            Some(ref path) => Some(TagStorage::new(&path)),
+            None => None
+        };*/
+
+        self.with_services(selectors, |service, store| {
             let service = service.borrow_mut();
             let mut tag_set = service.tags.borrow_mut();
 
-            if let Some(ref path) = self.db_path {
-                let store = TagStorage::new(&path);
-                // TODO: decide how to deal with errors.
-                store.add_tags(&service.id, &tags).unwrap_or_else(|_ /* err */| {});
+            if let Some(ref storage) = *store {
+                storage.add_tags(&service.id, &tags)
+                       .unwrap_or_else(|err| { error!("Storage add_tags error: {}", err); });
             }
 
             for tag in &tags {
@@ -928,14 +923,13 @@ impl State {
 
     pub fn remove_service_tags(&mut self, selectors: Vec<ServiceSelector>, tags: Vec<Id<TagId>>) -> usize {
         let mut result = 0;
-        self.with_services(selectors, |service| {
+        self.with_services(selectors, |service, store| {
             let service = service.borrow_mut();
             let mut tag_set = service.tags.borrow_mut();
 
-            if let Some(ref path) = self.db_path {
-                let store = TagStorage::new(&path);
-                // TODO: decide how to deal with errors.
-                store.remove_tags(&service.id, &tags).unwrap_or_else(|_ /* err */| {});
+            if let Some(ref storage) = *store {
+                storage.remove_tags(&service.id, &tags)
+                       .unwrap_or_else(|err| { error!("Storage remove_tags error: {}", err); });
             }
 
             for tag in &tags {
@@ -968,8 +962,8 @@ impl State {
                 if data.insert_tags(&tags) {
                     if let Some(ref path) = db_path {
                         let store = TagStorage::new(&path);
-                        // TODO: decide how to deal with errors.
-                        store.add_tags(&data.id, &tags).unwrap_or_else(|_ /* err */| {});
+                        store.add_tags(&data.id, &tags)
+                             .unwrap_or_else(|err| { error!("Storage add_tags error: {}", err); });
                     }
 
                     channels.push(data.id.clone());
@@ -987,8 +981,8 @@ impl State {
             data.insert_tags(&tags);
             if let Some(ref path) = db_path {
                 let store = TagStorage::new(&path);
-                // TODO: decide how to deal with errors.
-                store.add_tags(&data.id, &tags).unwrap_or_else(|_ /* err */| {});
+                store.add_tags(&data.id, &tags)
+                     .unwrap_or_else(|err| { error!("Storage add_tags error: {}", err); });
             }
             result += 1;
         });
@@ -1002,8 +996,8 @@ impl State {
             data.remove_tags(&tags);
             if let Some(ref path) = db_path {
                 let store = TagStorage::new(&path);
-                // TODO: decide how to deal with errors.
-                store.remove_tags(&data.id, &tags).unwrap_or_else(|_ /* err */| {});
+                store.remove_tags(&data.id, &tags)
+                     .unwrap_or_else(|err| { error!("Storage remove_tags error: {}", err); });
             }
             Self::aux_getter_may_need_unregistration(&mut data, false);
             result += 1;
@@ -1017,8 +1011,8 @@ impl State {
             data.remove_tags(&tags);
             if let Some(ref path) = db_path {
                 let store = TagStorage::new(&path);
-                // TODO: decide how to deal with errors.
-                store.remove_tags(&data.id, &tags).unwrap_or_else(|_ /* err */| {});
+                store.remove_tags(&data.id, &tags)
+                     .unwrap_or_else(|err| { error!("Storage remove_tags error: {}", err); });
             }
             result += 1;
         });
