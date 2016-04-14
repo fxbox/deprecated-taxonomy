@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["Constant","A `LitKind`-like enum to fold constant `Expr`s into."],["FloatWidth",""]],"fn":[["constant",""],["constant_simple",""]]});
