@@ -14,7 +14,7 @@ use serde_json::error;
 use serde::ser::{ Serialize, Serializer };
 use serde_json;
 pub use serde_json::value::Value as JSON;
-use serde::de::{ Deserializer, Error };
+use serde::de::Error;
 
 /// Utility function: Make sure that we have consumed all the fields of an object.
 pub fn check_fields(path: Path, json: &JSON) -> Result<(), ParseError> {
@@ -166,7 +166,7 @@ impl Serialize for JSONError {
     fn serialize<S>(&self, serializer: &mut S) -> Result<(), S::Error>
         where S: Serializer
     {
-        serializer.visit_str(&format!("{:?}", self))
+        serializer.serialize_str(&format!("{:?}", self))
     }
 }
 
@@ -177,9 +177,12 @@ impl Serialize for JSONError {
 pub trait Parser<T: Sized> {
     fn description() -> String;
     fn from_str(source: &str) -> Result<T, ParseError> {
+        Self::from_str_at(Path::new(), source)
+    }
+    fn from_str_at(path: Path, source: &str) -> Result<T, ParseError> {
         match serde_json::from_str(source) {
             Err(err) => Err(ParseError::json(err)),
-            Ok(mut json) => Self::parse(Path::new(), &mut json)
+            Ok(mut json) => Self::parse(path, &mut json)
         }
     }
 
@@ -215,9 +218,7 @@ pub trait Parser<T: Sized> {
                 if let JSON::Array(ref mut vec) = *json {
                     let mut result = Vec::with_capacity(vec.len());
                     for (json, i) in vec.iter_mut().zip(0..) {
-                        match path.push(&format!("{}#{}", field_name, i),
-                            |path| Self::parse(path, json)
-                        ) {
+                        match path.push_index(i, |path| Self::parse(path, json)) {
                             Err(error) => return Some(Err(error)),
                             Ok(parsed) => result.push(parsed)
                         }

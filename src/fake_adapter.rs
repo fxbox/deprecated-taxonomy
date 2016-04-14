@@ -180,7 +180,7 @@ impl Adapter for FakeAdapter {
         &VERSION
     }
 
-    /// Request a value from a channel. The FoxBox (not the adapter)
+    /// Request a value from a channel. The `FoxBox` (not the adapter)
     /// is in charge of keeping track of the age of values.
     fn fetch_values(&self, mut channels: Vec<Id<Getter>>, _: User) -> ResultMap<Id<Getter>, Option<Value>, Error> {
         let map = self.values.lock().unwrap();
@@ -209,16 +209,15 @@ impl Adapter for FakeAdapter {
         }).collect()
     }
 
-    fn register_watch(&self, mut sources: Vec<(Id<Getter>, Option<Range>)>,
-        on_event: Box<ExtSender<WatchEvent>>) ->
-            ResultMap<Id<Getter>, Box<AdapterWatchGuard>, Error>
+    fn register_watch(&self, mut watch: Vec<(Id<Getter>, Option<Range>, Box<ExtSender<WatchEvent>>)>) ->
+            Vec<(Id<Getter>, Result<Box<AdapterWatchGuard>, Error>)>
     {
         let mut watchers = self.watchers.lock().unwrap();
-        sources.drain(..).map(|(id, filter)| {
+        watch.drain(..).map(|(id, filter, on_event)| {
             let is_dropped = Arc::new(AtomicBool::new(false));
             let watcher = WatcherState {
                 filter: filter,
-                on_event: on_event.clone(),
+                on_event: on_event,
                 is_met: RefCell::new(false),
                 is_dropped: is_dropped.clone()
             };

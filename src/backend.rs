@@ -33,7 +33,7 @@ macro_rules! log_debug_assert {
 
 /// A request to a bunch of adapters.
 ///
-/// Whenever possible, the AdapterManager attempts to place calls to the Adapters
+/// Whenever possible, the `AdapterManager` attempts to place calls to the Adapters
 /// after it has released its locks. An `AdapterRequest` represents stuff that has
 /// been extracted from the maps while they were locked for use after unlocking.
 pub type AdapterRequest<T> = HashMap<Id<AdapterId>, (Arc<Adapter>, T)>;
@@ -45,7 +45,7 @@ pub type FetchRequest = AdapterRequest<HashMap<Id<Getter>, Type>>;
 pub type SendRequest = AdapterRequest<(HashMap<Id<Setter>, Value>, ResultMap<Id<Setter>, (), Error>)>;
 
 /// A request to an adapter, for performing a `watch` operation.
-pub type WatchRequest = AdapterRequest<(Vec<(Id<Getter>, Option<Range>)>, Weak<WatcherData>)>;
+pub type WatchRequest = AdapterRequest<Vec<(Id<Getter>, Option<Range>, Weak<WatcherData>)>>;
 
 pub type WatchGuardCommit = Vec<(Weak<WatcherData>, Vec<(Id<Getter>, Box<AdapterWatchGuard>)>)>;
 
@@ -275,7 +275,7 @@ impl Deref for SetterData {
 /// All the information on a currently registered watch.
 ///
 /// A single watch may concern any number of getter channels, including channels not registered
-/// yet. The WatcherData is materialized as a WatchGuard in userland.
+/// yet. The `WatcherData` is materialized as a `WatchGuard` in userland.
 pub struct WatcherData {
     /// The criteria for watching.
     watch: TargetMap<GetterSelector, Exactly<Range>>,
@@ -283,7 +283,7 @@ pub struct WatcherData {
     /// The listener for this watch.
     on_event: Mutex<Box<ExtSender<WatchEvent>>>,
 
-    /// A unique key used to locate the WatcherData in the
+    /// A unique key used to locate the `WatcherData` in the
     /// WatchMap.
     key: WatchKey,
 
@@ -418,9 +418,9 @@ impl State {
                 // Ensure that we release the borrow before calling `cb`.
                 let borrow = &*service.borrow();
                 let view = ServiceView::new(borrow);
-                matches = selectors.iter().find(|selector| {
+                matches = selectors.iter().any(|selector| {
                     selector.matches(&view)
-                }).is_some();
+                });
             }
             if matches {
                 cb(service);
@@ -434,9 +434,9 @@ impl State {
               V: SelectedBy<S>,
     {
         for (_, data) in map.iter() {
-            let matches = selectors.iter().find(|selector| {
+            let matches = selectors.iter().any(|selector| {
                 data.borrow().matches(selector)
-            }).is_some();
+            });
             if matches {
                 cb(&*data.borrow());
             }
@@ -449,9 +449,9 @@ impl State {
               V: SelectedBy<S>,
     {
         for (_, data) in map.iter_mut() {
-            let matches = selectors.iter().find(|selector| {
+            let matches = selectors.iter().any(|selector| {
                 data.borrow().matches(selector)
-            }).is_some();
+            });
             if matches {
                 cb(&mut *data.borrow_mut());
             }
@@ -483,16 +483,20 @@ impl State {
                         continue;
                     }
                 };
+                if watcher.is_dropped.load(Ordering::Relaxed) {
+                    // The guard has been dropped, we don't care anymore.
+                    continue;
+                }
 
                 // We need to disconnect the watcher if either the channel is being removed
                 // or it doesn't match anymore any of the selectors for the watchers
                 // that were watching it.
                 let should_disconnect = is_being_removed
-                    || watcher.watch.iter().find(|&targetted| {
-                        targetted.select.iter().find(|selector| {
+                    || watcher.watch.iter().any(|ref targetted| {
+                        targetted.select.iter().any(|selector| {
                             !getter_data.matches(selector)
-                        }).is_some()
-                    }).is_some();
+                        })
+                    });
                 if !should_disconnect {
                     // The channel hasn't stopped matching this watcher.
                     continue;
@@ -515,6 +519,7 @@ impl State {
     }
 
     fn aux_getters_may_need_registration(&mut self, getters: Vec<Id<Getter>>) -> WatchRequest {
+        debug!(target: "Taxonomy-backend", "checking if getters need to be watched {:?}", getters);
         let adapter_by_id = &self.adapter_by_id;
         let mut per_adapter = HashMap::new();
         for id in getters {
@@ -532,10 +537,14 @@ impl State {
                             // The watcher already matches this getter.
                             continue;
                         }
+                        if watcher.is_dropped.load(Ordering::Relaxed) {
+                            // The guard has been dropped, we don't care anymore.
+                            continue;
+                        }
                         for targetted in &watcher.watch {
-                            let matches = targetted.select.iter().find(|selector| {
+                            let matches = targetted.select.iter().any(|selector| {
                                 getter_data.matches(selector)
-                            }).is_some();
+                            });
                             if !matches {
                                 // The channel doesn't match this watcher.
                                 continue;
@@ -563,9 +572,9 @@ impl State {
             where V: SelectedBy<S>
         {
             let cb : &Fn(&V) -> bool + 'state = |data: &V| {
-                selectors.iter().find(|selector| {
+                selectors.iter().any(|selector| {
                     data.matches(selector)
-                }).is_some()
+                })
             };
             map.values()
                 .filter(cb)
@@ -1148,10 +1157,10 @@ impl State {
                         adapter_data.adapter.clone()
                     }
                 };
-                entry.insert((adapter, (vec![(id, range)], Arc::downgrade(watcher))));
+                entry.insert((adapter, (vec![(id, range, Arc::downgrade(watcher) )])));
             },
             Occupied(mut entry) => {
-                (entry.get_mut().1).0.push((id, range));
+                (entry.get_mut().1).push((id, range, Arc::downgrade(watcher)));
             }
         }
 
@@ -1225,10 +1234,10 @@ impl State {
     /// Start watching a set of channels.
     pub fn start_watch(mut per_adapter: WatchRequest) -> WatchGuardCommit {
         // In most cases, stop_watch will take place long after start_watch. It is, however,
-        // possible that the WatchGuard is dropped before start_watch is processed for this
+        // possible that the `WatchGuard` is dropped before start_watch is processed for this
         // channel. In this case, three events take place:
-        // 1. The WatchGuard sets `is_dropped` to `true`, atomically.
-        // 2a. The WatchGuard dispatches `stop_watch`, which is serialized.
+        // 1. The `WatchGuard` sets `is_dropped` to `true`, atomically.
+        // 2a. The `WatchGuard` dispatches `stop_watch`, which is serialized.
         // 2b. Someone dispatches `start_watch`, which is serialized.
         //
         // Since `start_watch` and `stop_watch` are serialized, either 2a or 2b will win.
@@ -1243,56 +1252,67 @@ impl State {
         //   by checking whether `is_dropped` is true.
 
         let mut to_add = vec![];
-        for (_, (adapter, (request, weak_watch_data))) in per_adapter.drain() {
-            let watch_data = match weak_watch_data.upgrade() {
-                None => {
-                    // The watch_data has already been dropped, nothing to do.
-                    continue
-                }
-                Some(watch_data) => watch_data
-            };
-            let is_dropped = watch_data.is_dropped.clone();
-            if is_dropped.load(Ordering::Relaxed) {
-                // The WatchGuard has already been dropped.
-                continue
-            }
-            let on_ok = watch_data.on_event.lock().unwrap().filter_map(move |event| {
+        for (_, (adapter, mut adapter_request)) in per_adapter.drain() {
+            for (id, range, weak_watch_data) in adapter_request.drain(..) {
+                let watch_data = match weak_watch_data.upgrade() {
+                    None => {
+                        // The watch_data has already been dropped, nothing to do.
+                        debug!(target: "Taxonomy-backend", "State::start_watch, the guard has been dropped, cannot upgrade, skipping.");
+                        continue
+                    }
+                    Some(watch_data) => watch_data
+                };
+                let is_dropped = watch_data.is_dropped.clone();
                 if is_dropped.load(Ordering::Relaxed) {
                     // The WatchGuard has already been dropped.
-                    // We want to stop propagating messages immediately, even if unregistration
-                    // is not necessarily complete yet. Unregistration will be completed after
-                    // the call to `stop_watch`.
-                    return None;
+                    debug!(target: "Taxonomy-backend", "State::start_watch, the guard has been dropped, is_dropped detected, skipping.");
+                    return continue;
                 }
-                Some(match event {
-                    AdapterWatchEvent::Enter { id, value } =>
-                        WatchEvent::EnterRange {
-                            from: id,
-                            value: value
+                let on_ok = watch_data.on_event.lock().unwrap().filter_map(move |event| {
+                    if is_dropped.load(Ordering::Relaxed) {
+                        debug!(target: "Taxonomy-backend", "State::start_watch, the guard has been dropped, is_dropped detected, don't propagate messages.");
+
+                        // The WatchGuard has already been dropped.
+                        // We want to stop propagating messages immediately, even if unregistration
+                        // is not necessarily complete yet. Unregistration will be completed after
+                        // the call to `stop_watch`.
+                        return None;
+                    }
+                    Some(match event {
+                        AdapterWatchEvent::Enter { id, value } =>
+                            WatchEvent::EnterRange {
+                                from: id,
+                                value: value
+                            },
+                        AdapterWatchEvent::Exit { id, value } =>
+                            WatchEvent::ExitRange {
+                                from: id,
+                                value: value
+                            },
+                    })
+                });
+
+                let mut guards = vec![];
+                for (id, result) in adapter.register_watch(vec![(id, range, Box::new(on_ok))]) {
+                    debug!(target: "Taxonomy-backend", "State::start_watch, registered watch for {} => {}.", id, result.is_ok());
+
+                    match result {
+                        Err(err) => {
+                            let event = WatchEvent::InitializationError {
+                                channel: id.clone(),
+                                error: err
+                            };
+                            let _ = watch_data.on_event.lock().unwrap().send(event);
                         },
-                    AdapterWatchEvent::Exit { id, value } =>
-                        WatchEvent::ExitRange {
-                            from: id,
-                            value: value
-                        },
-                })
-            });
-            let mut guards = vec![];
-            for (id, result) in adapter.register_watch(request, Box::new(on_ok)) {
-                match result {
-                    Err(err) => {
-                        let event = WatchEvent::InitializationError {
-                            channel: id.clone(),
-                            error: err
-                        };
-                        let _ = watch_data.on_event.lock().unwrap().send(event);
-                    },
-                    // Calling `watch_data.push((id, guard))` requires .write(), so we delay
-                    // this until we have grabbed the lock again.
-                    Ok(guard) => guards.push((id, guard))
+                        // Calling `watch_data.push((id, guard))` requires .write(), so we delay
+                        // this until we have grabbed the lock again.
+                        Ok(guard) => guards.push((id, guard))
+                    }
+                }
+                if !guards.is_empty() {
+                    to_add.push((weak_watch_data, guards));
                 }
             }
-            to_add.push((weak_watch_data, guards));
         }
         to_add
     }
@@ -1303,9 +1323,24 @@ impl State {
         for (watch_data, mut guards) in ongoing.drain(..) {
             if let Some(ref watch_data) = watch_data.upgrade() {
                 for (id, guard) in guards.drain(..) {
+                    debug!(target: "Taxonomy-backend", "State::register_ongoing_watch, registered watch for {}", id);
                     watch_data.push_guard(id, guard)
                 }
             }
         }
+    }
+}
+
+impl State {
+    // Clear all state, removing any remaining cycle or lingering thread.
+    pub fn stop(&mut self) {
+        for adapter in self.adapter_by_id.values() {
+            adapter.stop();
+        }
+        self.adapter_by_id.clear();
+        self.service_by_id.clear();
+        self.getter_by_id.clear();
+        self.setter_by_id.clear();
+        self.watchers.lock().unwrap().watchers.clear();
     }
 }

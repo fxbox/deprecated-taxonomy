@@ -22,7 +22,7 @@ use std::thread;
 use sublock::atomlock::*;
 use transformable_channels::mpsc::*;
 
-/// An implementation of the AdapterManager.
+/// An implementation of the `AdapterManager`.
 ///
 /// This implementation is `Sync` and supports any number of concurrent
 /// readers *or* a single writer.
@@ -39,7 +39,7 @@ pub struct AdapterManager {
 }
 
 impl AdapterManager {
-    /// Create an empty AdapterManager.
+    /// Create an empty `AdapterManager`.
     /// This function does not attempt to load any state from the disk.
     pub fn new(db_path: Option<PathBuf>) -> Self {
         // The code should build only if AdapterManager implements Sync.
@@ -132,6 +132,9 @@ impl AdapterManagerHandle for AdapterManager {
             // Acquire and release lock asap.
             try!(self.back_end.write().unwrap().add_getter(getter))
         };
+        if !request.is_empty() {
+            debug!(target: "Taxonomy-manager", "manager.add_getter => need to register watches");
+        }
         self.register_watches(request);
         Ok(())
     }
@@ -250,6 +253,9 @@ impl API for AdapterManager {
             // Acquire and release the write lock.
             self.back_end.write().unwrap().add_getter_tags(selectors, tags)
         };
+        if !request.is_empty() {
+            debug!(target: "Taxonomy-manager", "manager.add_getter_tags => need to register watches");
+        }
         self.register_watches(request);
         result
     }
@@ -350,6 +356,9 @@ impl API for AdapterManager {
                 .prepare_channel_watch(watch, on_event)
         };
 
+        if !request.is_empty() {
+            debug!(target: "Taxonomy-manager", "manager.watch_values => need to register watches");
+        }
         self.register_watches(request);
         WatchGuard::new(self.tx_watch.lock().unwrap().internal_clone(), watch_key, is_dropped)
     }
@@ -360,7 +369,7 @@ impl API for AdapterManager {
 
 /// Operations related to watching.
 ///
-/// As the adapter side of operations can be slow, we want to keep them out of the MainLock. On the
+/// As the adapter side of operations can be slow, we want to keep them out of the `MainLock`. On the
 /// other hand, we want to make sure that they take place in a predictable order, to avoid race
 /// conditions. So we delegate them to a specialized background thread.
 enum WatchOp {
@@ -439,5 +448,12 @@ impl Drop for WatchGuard {
         // dropping during shutdown), don't insist.
         // Note that we background this to avoid any risk of deadlock during the drop.
         let _ = self.tx_owner.send(WatchOp::Release(self.key));
+    }
+}
+
+
+impl AdapterManager {
+    pub fn stop(&self) {
+        self.back_end.write().unwrap().stop()
     }
 }

@@ -3,7 +3,7 @@
 //! Note that all the data structures in this module represent
 //! snapshots of subsets of the devices available. None of these data
 //! structures are live, so there is always the possibility that
-//! devices may have been added or removed from the FoxBox by the time
+//! devices may have been added or removed from the `FoxBox` by the time
 //! these data structures are read.
 
 use parse::*;
@@ -35,7 +35,7 @@ macro_rules! tag_id {
 }
 
 /// Metadata on a service. A service is a device or collection of devices
-/// that may offer services. The FoxBox itself is a service offering
+/// that may offer services. The `FoxBox` itself is a service offering
 /// services such as a clock, communicating with the user through her
 /// smart devices, etc.
 ///
@@ -162,21 +162,21 @@ pub enum ChannelKind {
     // # Boolean
     //
 
-    /// The service is used to detect or decide whether some device
+    /// The service is used to detect or decide whether some light
     /// is on or off.
     ///
     /// # JSON
     ///
-    /// This kind is represented by string "OnOff".
+    /// This kind is represented by string "LightOn".
     ///
     /// ```
     /// use foxbox_taxonomy::services::*;
     /// use foxbox_taxonomy::parse::*;
     ///
-    /// let parsed = ChannelKind::from_str("\"OnOff\"").unwrap();
-    /// assert_eq!(parsed, ChannelKind::OnOff);
+    /// let parsed = ChannelKind::from_str("\"LightOn\"").unwrap();
+    /// assert_eq!(parsed, ChannelKind::LightOn);
     /// ```
-    OnOff,
+    LightOn,
 
     /// The service is used to detect or decide whether some device
     /// is open or closed.
@@ -193,6 +193,57 @@ pub enum ChannelKind {
     /// assert_eq!(parsed, ChannelKind::OpenClosed);
     /// ```
     OpenClosed,
+
+    /// The service is used to deterct or decide whether a door lock
+    /// is locked or unlocked.
+    /// # JSON
+    ///
+    /// This kind is represented by string "DoorLocked".
+    ///
+    /// ```
+    /// use foxbox_taxonomy::services::*;
+    /// use foxbox_taxonomy::parse::*;
+    ///
+    /// let parsed = ChannelKind::from_str("\"DoorLocked\"").unwrap();
+    /// assert_eq!(parsed, ChannelKind::DoorLocked);
+    /// ```
+    DoorLocked,
+
+    //
+    // # String
+    //
+
+    /// The service is used to read or set the username associated with the
+    /// service. This is typically used for devices which have additional
+    /// authentication (like an IP Camera).
+    ///
+    /// # JSON
+    ///
+    /// This kind is represented by the string "Username".
+    /// ```
+    /// use foxbox_taxonomy::services::*;
+    /// use foxbox_taxonomy::parse::*;
+    ///
+    /// let parsed = ChannelKind::from_str("\"Username\"").unwrap();
+    /// assert_eq!(parsed, ChannelKind::Username);
+    /// ```
+    Username,
+
+    /// The service is used to read or set the password associated with the
+    /// service. This is typically used for devices which have additional
+    /// authentication (like an IP Camera).
+    ///
+    /// # JSON
+    ///
+    /// This kind is represented by the string "Password".
+    /// ```
+    /// use foxbox_taxonomy::services::*;
+    /// use foxbox_taxonomy::parse::*;
+    ///
+    /// let parsed = ChannelKind::from_str("\"Password\"").unwrap();
+    /// assert_eq!(parsed, ChannelKind::Password);
+    /// ```
+    Password,
 
     //
     // # Time
@@ -274,6 +325,7 @@ pub enum ChannelKind {
     AddThinkerbellRule,
     RemoveThinkerbellRule,
     ThinkerbellRuleSource,
+    ThinkerbellRuleOn,
 
     /// Capture a new snapshot.
     ///
@@ -294,6 +346,32 @@ pub enum ChannelKind {
     /// assert_eq!(serialized.as_string().unwrap(), "TakeSnapshot");
     /// ```
     TakeSnapshot,
+
+    /// Write to a log file
+    ///
+    /// # JSON
+    ///
+    /// This kind is represented by string "Log".
+    ///
+    /// ```
+    /// use foxbox_taxonomy::services::*;
+    /// use foxbox_taxonomy::parse::*;
+    ///
+    /// let source = r#""Log""#;
+    ///
+    /// let parsed = ChannelKind::from_str(source).unwrap();
+    /// assert_eq!(parsed, ChannelKind::Log);
+    ///
+    /// let serialized = parsed.to_json();
+    /// assert_eq!(serialized.as_string().unwrap(), "Log");
+    /// ```
+    Log,
+
+    //
+    // # WebPush
+    //
+
+    WebPushNotify,
 
     // TODO: Add more
 
@@ -362,16 +440,22 @@ impl Parser<ChannelKind> for ChannelKind {
         if let Some(str) = source.as_string() {
             return match str {
                 "Ready" => Ok(ChannelKind::Ready),
-                "OnOff" => Ok(ChannelKind::OnOff),
+                "LightOn" => Ok(ChannelKind::LightOn),
                 "OpenClosed" => Ok(ChannelKind::OpenClosed),
+                "DoorLocked" => Ok(ChannelKind::DoorLocked),
+                "Username" => Ok(ChannelKind::Username),
+                "Password" => Ok(ChannelKind::Password),
                 "CurrentTime" => Ok(ChannelKind::CurrentTime),
                 "CurrentTimeOfDay" => Ok(ChannelKind::CurrentTimeOfDay),
                 "AddThinkerbellRule" => Ok(ChannelKind::AddThinkerbellRule),
                 "RemoveThinkerbellRule" => Ok(ChannelKind::RemoveThinkerbellRule),
                 "ThinkerbellRuleSource" => Ok(ChannelKind::ThinkerbellRuleSource),
+                "ThinkerbellRuleOn" => Ok(ChannelKind::ThinkerbellRuleOn),
                 "RemainingTime" => Ok(ChannelKind::RemainingTime),
                 "OvenTemperature" => Ok(ChannelKind::OvenTemperature),
                 "TakeSnapshot" => Ok(ChannelKind::TakeSnapshot),
+                "Log" => Ok(ChannelKind::Log),
+                "WebPushNotify" => Ok(ChannelKind::WebPushNotify),
                 _ => Err(ParseError::unknown_constant(str, &path))
             }
         }
@@ -402,8 +486,11 @@ impl ToJSON for ChannelKind {
         use self::ChannelKind::*;
         match *self {
             Ready => JSON::String("Ready".to_owned()),
-            OnOff => JSON::String("OnOff".to_owned()),
+            LightOn => JSON::String("LightOn".to_owned()),
             OpenClosed => JSON::String("OpenClosed".to_owned()),
+            DoorLocked => JSON::String("DoorLocked".to_owned()),
+            Username => JSON::String("Username".to_owned()),
+            Password => JSON::String("Password".to_owned()),
             CurrentTime => JSON::String("CurrentTime".to_owned()),
             CurrentTimeOfDay => JSON::String("CurrentTimeOfDay".to_owned()),
             RemainingTime => JSON::String("RemainingTime".to_owned()),
@@ -411,13 +498,16 @@ impl ToJSON for ChannelKind {
             AddThinkerbellRule => JSON::String("AddThinkerbellRule".to_owned()),
             RemoveThinkerbellRule => JSON::String("RemoveThinkerbellRule".to_owned()),
             ThinkerbellRuleSource => JSON::String("ThinkerbellRuleSource".to_owned()),
+            ThinkerbellRuleOn => JSON::String("ThinkerbellRuleOn".to_owned()),
             TakeSnapshot => JSON::String("TakeSnapshot".to_owned()),
+            Log => JSON::String("Log".to_owned()),
+            WebPushNotify => JSON::String("WebPushNotify".to_owned()),
             Extension { ref vendor, ref adapter, ref kind, ref typ } => {
                 vec![
                     ("vendor", vendor.to_json()),
                     ("adapter", adapter.to_json()),
                     ("kind", kind.to_json()),
-                    ("typ", typ.to_json()),
+                    ("type", typ.to_json()),
                 ].to_json()
             }
         }
@@ -431,15 +521,20 @@ impl ChannelKind {
         use values::Type;
         match *self {
             Ready => Type::Unit,
-            OnOff => Type::OnOff,
+            LightOn => Type::OnOff,
             OpenClosed => Type::OpenClosed,
+            DoorLocked => Type::DoorLocked,
             CurrentTime => Type::TimeStamp,
             CurrentTimeOfDay | RemainingTime => Type::Duration,
             OvenTemperature => Type::Temperature,
             AddThinkerbellRule => Type::ThinkerbellRule,
             RemoveThinkerbellRule => Type::Unit,
-            ThinkerbellRuleSource => Type::String,
+			ThinkerbellRuleSource => Type::String,
+            ThinkerbellRuleOn => Type::OnOff,
+            Log => Type::String,
             TakeSnapshot => Type::Unit,
+			Username | Password => Type::String,
+            WebPushNotify => Type::WebPushNotify,
             Extension { ref typ, ..} => typ.clone(),
         }
     }
