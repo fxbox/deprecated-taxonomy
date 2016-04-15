@@ -90,6 +90,7 @@ impl TagStorage {
         for tag in tags {
             try!(self.add_tag(id, tag));
         }
+        //self.dump("add_tags");
         Ok(())
     }
 
@@ -134,7 +135,6 @@ pub fn get_db_environment() -> PathBuf {
     use std::thread;
     let tid = format!("{:?}", thread::current()).replace("(", "+").replace(")", "+");
     let s = format!("./tagstore_db_test-{}-{}.sqlite", unsafe { getpid() }, tid.replace("/", "42"));
-    println!("get_db_environment {}", s);
     PathBuf::from(s)
 }
 

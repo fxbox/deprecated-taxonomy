@@ -728,18 +728,6 @@ impl State {
         }
     }
 
-    /// Ensure that the set of tags on a channel is coherent with the database state for
-    /// this channel's id.
-    fn load_channel_tags_from_store<T: IOMechanism>(&mut self, mut channel: Channel<T>) {
-        if let Some(ref path) = self.db_path {
-            let mut store = TagStorage::new(&path);
-            // Add all the tags for this channel.
-            if let Ok(all_tags) = store.get_tags_for(&channel.id) {
-                channel.insert_tags(&all_tags);
-            }
-        }
-    }
-
     /// Add a getter to the system. Typically, this is called by the adapter when a new
     /// service has been detected/configured. Some services may gain/lose getters at
     /// runtime depending on their configuration.
@@ -753,8 +741,15 @@ impl State {
     /// Returns an error if the adapter is not registered, the parent service is not
     /// registered, or a channel with the same identifier is already registered.
     /// In either cases, this method reverts all its changes.
-    pub fn add_getter(&mut self, getter: Channel<Getter>) -> Result<WatchRequest, Error> {
-        self.load_channel_tags_from_store(getter.clone());
+    pub fn add_getter(&mut self, mut getter: Channel<Getter>) -> Result<WatchRequest, Error> {
+        // Add the database tags to this getter.
+        if let Some(ref path) = self.db_path {
+            let mut store = TagStorage::new(&path);
+            // Add all the tags for this channel.
+            if let Ok(all_tags) = store.get_tags_for(&getter.id) {
+                getter.insert_tags(&all_tags);
+            }
+        }
 
         let id = getter.id.clone();
         {
@@ -830,8 +825,15 @@ impl State {
     /// Returns an error if the adapter is not registered, the parent service is not
     /// registered, or a channel with the same identifier is already registered.
     /// In either cases, this method reverts all its changes.
-    pub fn add_setter(&mut self, setter: Channel<Setter>) -> Result<(), Error> {
-        self.load_channel_tags_from_store(setter.clone());
+    pub fn add_setter(&mut self, mut setter: Channel<Setter>) -> Result<(), Error> {
+        // Add the database tags to this setter.
+        if let Some(ref path) = self.db_path {
+            let mut store = TagStorage::new(&path);
+            // Add all the tags for this channel.
+            if let Ok(all_tags) = store.get_tags_for(&setter.id) {
+                setter.insert_tags(&all_tags);
+            }
+        }
 
         let service = match self.service_by_id.get_mut(&setter.service) {
             None => return Err(Error::InternalError(InternalError::NoSuchService(setter.service.clone()))),
