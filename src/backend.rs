@@ -991,11 +991,12 @@ impl State {
         let mut result = 0;
         let db_path = self.db_path.clone();
         Self::with_channels_mut(selectors, &mut self.getter_by_id, |mut data| {
-            data.remove_tags(&tags);
-            if let Some(ref path) = db_path {
-                let mut store = TagStorage::new(&path);
-                store.remove_tags(&data.id, &tags)
-                     .unwrap_or_else(|err| { error!("Storage remove_tags error: {}", err); });
+            if data.remove_tags(&tags) {
+                if let Some(ref path) = db_path {
+                    let mut store = TagStorage::new(&path);
+                    store.remove_tags(&data.id, &tags)
+                         .unwrap_or_else(|err| { error!("Storage remove_tags error: {}", err); });
+                }
             }
             Self::aux_getter_may_need_unregistration(&mut data, false);
             result += 1;
@@ -1006,11 +1007,12 @@ impl State {
         let mut result = 0;
         let db_path = self.db_path.clone();
         Self::with_channels_mut(selectors, &mut self.setter_by_id, |mut data| {
-            data.remove_tags(&tags);
-            if let Some(ref path) = db_path {
-                let mut store = TagStorage::new(&path);
-                store.remove_tags(&data.id, &tags)
-                     .unwrap_or_else(|err| { error!("Storage remove_tags error: {}", err); });
+            if data.remove_tags(&tags) {
+                if let Some(ref path) = db_path {
+                    let mut store = TagStorage::new(&path);
+                    store.remove_tags(&data.id, &tags)
+                         .unwrap_or_else(|err| { error!("Storage remove_tags error: {}", err); });
+                }
             }
             result += 1;
         });
