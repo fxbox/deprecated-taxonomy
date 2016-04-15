@@ -407,9 +407,9 @@ impl State {
     }
 
     fn with_services<F>(&self, selectors: Vec<ServiceSelector>, mut cb: F)
-        where F: FnMut(&Arc<SubCell<ServiceData>>, &Option<TagStorage>) {
+        where F: FnMut(&Arc<SubCell<ServiceData>>, &mut Option<TagStorage>) {
 
-        let store = match self.db_path {
+        let mut store = match self.db_path {
             Some(ref path) => Some(TagStorage::new(&path)),
             None => None
         };
@@ -417,7 +417,7 @@ impl State {
         for service in self.service_by_id.values() {
             // All services match when we have no selectors.
             if selectors.is_empty() {
-                cb(service, &store);
+                cb(service, &mut store);
                 continue;
             }
             let matches;
@@ -430,7 +430,7 @@ impl State {
                 });
             }
             if matches {
-                cb(service, &store);
+                cb(service, &mut store);
             }
         };
     }
@@ -673,7 +673,7 @@ impl State {
         {
             if let Some(ref path) = self.db_path {
                 // Update the service's tag set with the full set from the database.
-                let store = TagStorage::new(&path);
+                let mut store = TagStorage::new(&path);
                 let tags = match store.get_tags_for(&id) {
                     Err(err) => return Err(Error::InternalError(InternalError::GenericError(format!("{}", err)))),
                     Ok(tags) => tags
@@ -730,10 +730,9 @@ impl State {
 
     /// Ensure that the set of tags on a channel is coherent with the database state for
     /// this channel's id.
-    #[allow(unused_assignments)] // For `let mut vec  = vec![];`
-    fn sync_channel_tags_with_store<T: IOMechanism>(&mut self, mut channel: Channel<T>) {
+    fn load_channel_tags_from_store<T: IOMechanism>(&mut self, mut channel: Channel<T>) {
         if let Some(ref path) = self.db_path {
-            let store = TagStorage::new(&path);
+            let mut store = TagStorage::new(&path);
             // Add all the tags for this channel.
             if let Ok(all_tags) = store.get_tags_for(&channel.id) {
                 channel.insert_tags(&all_tags);
@@ -755,7 +754,7 @@ impl State {
     /// registered, or a channel with the same identifier is already registered.
     /// In either cases, this method reverts all its changes.
     pub fn add_getter(&mut self, getter: Channel<Getter>) -> Result<WatchRequest, Error> {
-        self.sync_channel_tags_with_store(getter.clone());
+        self.load_channel_tags_from_store(getter.clone());
 
         let id = getter.id.clone();
         {
@@ -832,7 +831,7 @@ impl State {
     /// registered, or a channel with the same identifier is already registered.
     /// In either cases, this method reverts all its changes.
     pub fn add_setter(&mut self, setter: Channel<Setter>) -> Result<(), Error> {
-        self.sync_channel_tags_with_store(setter.clone());
+        self.load_channel_tags_from_store(setter.clone());
 
         let service = match self.service_by_id.get_mut(&setter.service) {
             None => return Err(Error::InternalError(InternalError::NoSuchService(setter.service.clone()))),
@@ -904,7 +903,7 @@ impl State {
             let service = service.borrow_mut();
             let mut tag_set = service.tags.borrow_mut();
 
-            if let Some(ref storage) = *store {
+            if let Some(ref mut storage) = *store {
                 storage.add_tags(&service.id, &tags)
                        .unwrap_or_else(|err| { error!("Storage add_tags error: {}", err); });
             }
@@ -923,7 +922,7 @@ impl State {
             let service = service.borrow_mut();
             let mut tag_set = service.tags.borrow_mut();
 
-            if let Some(ref storage) = *store {
+            if let Some(ref mut storage) = *store {
                 storage.remove_tags(&service.id, &tags)
                        .unwrap_or_else(|err| { error!("Storage remove_tags error: {}", err); });
             }
@@ -954,10 +953,10 @@ impl State {
         {
             let db_path = self.db_path.clone();
             Self::with_channels_mut(selectors, &mut self.getter_by_id, |mut data| {
-                // This channel has changed, we may need to update watches.
+                // This channel has changed, we may need to update watches and the tags database.
                 if data.insert_tags(&tags) {
                     if let Some(ref path) = db_path {
-                        let store = TagStorage::new(&path);
+                        let mut store = TagStorage::new(&path);
                         store.add_tags(&data.id, &tags)
                              .unwrap_or_else(|err| { error!("Storage add_tags error: {}", err); });
                     }
@@ -974,11 +973,12 @@ impl State {
         let mut result = 0;
         let db_path = self.db_path.clone();
         Self::with_channels_mut(selectors, &mut self.setter_by_id, |mut data| {
-            data.insert_tags(&tags);
-            if let Some(ref path) = db_path {
-                let store = TagStorage::new(&path);
-                store.add_tags(&data.id, &tags)
-                     .unwrap_or_else(|err| { error!("Storage add_tags error: {}", err); });
+            if data.insert_tags(&tags) {
+                if let Some(ref path) = db_path {
+                    let mut store = TagStorage::new(&path);
+                    store.add_tags(&data.id, &tags)
+                         .unwrap_or_else(|err| { error!("Storage add_tags error: {}", err); });
+                }
             }
             result += 1;
         });
@@ -991,7 +991,7 @@ impl State {
         Self::with_channels_mut(selectors, &mut self.getter_by_id, |mut data| {
             data.remove_tags(&tags);
             if let Some(ref path) = db_path {
-                let store = TagStorage::new(&path);
+                let mut store = TagStorage::new(&path);
                 store.remove_tags(&data.id, &tags)
                      .unwrap_or_else(|err| { error!("Storage remove_tags error: {}", err); });
             }
@@ -1006,7 +1006,7 @@ impl State {
         Self::with_channels_mut(selectors, &mut self.setter_by_id, |mut data| {
             data.remove_tags(&tags);
             if let Some(ref path) = db_path {
-                let store = TagStorage::new(&path);
+                let mut store = TagStorage::new(&path);
                 store.remove_tags(&data.id, &tags)
                      .unwrap_or_else(|err| { error!("Storage remove_tags error: {}", err); });
             }

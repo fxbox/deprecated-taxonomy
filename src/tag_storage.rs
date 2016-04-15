@@ -26,29 +26,48 @@ fn create_key<T>(id: &Id<T>, tag: &Id<TagId>) -> String {
     format!("{}", hasher.finish())
 }
 
+/// A lighweight struct to manage the database. Creating these objects is very cheap because the
+/// underlying database is created lazily when we need it.
 pub struct TagStorage {
-    db: Connection,
+    db: Option<Connection>,
+    path: PathBuf,
 }
 
 impl TagStorage {
     pub fn new(path: &PathBuf) -> Self {
-        println!("Opening db at {}", path.display());
-        let db = Connection::open(path).unwrap();
+        TagStorage {
+            db: None,
+            path: path.clone()
+        }
+    }
+
+    // Ensures that we have a database ready. If we fail to open or create the database,
+    // this will panic.
+    fn ensure_db(&mut self) {
+        if self.db.is_some() {
+            return;
+        }
+
+        info!("Opening taxonomy tags database at {}", self.path.display());
+        let db = Connection::open(self.path.clone()).unwrap_or_else(|err| {
+            panic!("Unable to open taxonomy tags database: {}", err);
+        });
+
         db.execute("CREATE TABLE IF NOT EXISTS tags (
                     key    TEXT NOT NULL PRIMARY KEY,
                     id     TEXT NOT NULL,
                     tag    TEXT NOT NULL
-            )", &[]).unwrap();
+            )", &[]).unwrap_or_else(|err| {
+                panic!("Unable to create taxonomy tags database: {}", err);
+            });
 
-        TagStorage {
-            db: db
-        }
+        self.db = Some(db);
     }
 
     // Debug printing.
     #[allow(dead_code)]
-    fn dump(&self, msg: &str) {
-        let mut stmt = self.db.prepare("SELECT * FROM tags").unwrap();
+    fn dump(&mut self, msg: &str) {
+        let mut stmt = self.db.as_ref().unwrap().prepare("SELECT * FROM tags").unwrap();
         let rows = stmt.query(&[]).unwrap();
         println!("+-----------------------------------------------------------------------------");
         println!("| {}", msg);
@@ -60,39 +79,43 @@ impl TagStorage {
         println!("+-----------------------------------------------------------------------------");
     }
 
-    pub fn add_tag<T>(&self, id: &Id<T>, tag: &Id<TagId>) -> Result<()> {
-        try!(self.db.execute("INSERT OR IGNORE INTO tags VALUES ($1, $2, $3)",
+    pub fn add_tag<T>(&mut self, id: &Id<T>, tag: &Id<TagId>) -> Result<()> {
+        self.ensure_db();
+        try!(self.db.as_ref().unwrap().execute("INSERT OR IGNORE INTO tags VALUES ($1, $2, $3)",
                         &[&create_key(id, tag), &escape(&id), &escape(&tag)]));
         Ok(())
     }
 
-    pub fn add_tags<T>(&self, id: &Id<T>, tags: &[Id<TagId>]) -> Result<()> {
+    pub fn add_tags<T>(&mut self, id: &Id<T>, tags: &[Id<TagId>]) -> Result<()> {
         for tag in tags {
             try!(self.add_tag(id, tag));
         }
         Ok(())
     }
 
-    pub fn remove_tag<T>(&self, id: &Id<T>, tag: &Id<TagId>) -> Result<()> {
-        try!(self.db.execute("DELETE FROM tags WHERE key=$1", &[&create_key(id, tag)]));
+    pub fn remove_tag<T>(&mut self, id: &Id<T>, tag: &Id<TagId>) -> Result<()> {
+        self.ensure_db();
+        try!(self.db.as_ref().unwrap().execute("DELETE FROM tags WHERE key=$1", &[&create_key(id, tag)]));
         Ok(())
     }
 
-    pub fn remove_tags<T>(&self, id: &Id<T>, tags: &[Id<TagId>]) -> Result<()> {
+    pub fn remove_tags<T>(&mut self, id: &Id<T>, tags: &[Id<TagId>]) -> Result<()> {
         for tag in tags {
             try!(self.remove_tag(id, tag));
         }
         Ok(())
     }
 
-    pub fn remove_all_tags_for<T>(&self, id: &Id<T>) -> Result<()> {
-        try!(self.db.execute("DELETE FROM tags WHERE id=$1", &[&escape(id)]));
+    pub fn remove_all_tags_for<T>(&mut self, id: &Id<T>) -> Result<()> {
+        self.ensure_db();
+        try!(self.db.as_ref().unwrap().execute("DELETE FROM tags WHERE id=$1", &[&escape(id)]));
         Ok(())
     }
 
-    pub fn get_tags_for<T>(&self, id: &Id<T>) -> Result<Vec<Id<TagId>>> {
+    pub fn get_tags_for<T>(&mut self, id: &Id<T>) -> Result<Vec<Id<TagId>>> {
+        self.ensure_db();
         let mut subs = Vec::new();
-        let mut stmt = try!(self.db.prepare("SELECT tag FROM tags WHERE id=$1"));
+        let mut stmt = try!(self.db.as_ref().unwrap().prepare("SELECT tag FROM tags WHERE id=$1"));
         let rows = try!(stmt.query(&[&escape(&id)]));
         let (count, _) = rows.size_hint();
         subs.reserve_exact(count);
@@ -142,7 +165,7 @@ fn test_keys() {
 fn storage_test() {
     use util::ServiceId;
 
-    let store = TagStorage::new(&get_db_environment());
+    let mut store = TagStorage::new(&get_db_environment());
 
     let id1 = Id::<ServiceId>::new("first id");
     let id2 = Id::<ServiceId>::new("second id");

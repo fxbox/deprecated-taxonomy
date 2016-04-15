@@ -1,4 +1,5 @@
 extern crate foxbox_taxonomy;
+extern crate libc;
 extern crate transformable_channels;
 #[macro_use]
 extern crate assert_matches;
@@ -47,7 +48,7 @@ fn test_add_remove_adapter() {
     for clear in vec![false, true] {
 		println!("# Starting with test with clear {}.\n", clear);
 
-        let manager = AdapterManager::new();
+        let manager = AdapterManager::new(None);
         let id_1 = Id::new("id 1");
         let id_2 = Id::new("id 2");
 
@@ -96,7 +97,7 @@ fn test_add_remove_services() {
     for clear in vec![false, true] {
 		println!("# Starting with test with clear {}.", clear);
 
-        let manager = AdapterManager::new();
+        let manager = AdapterManager::new(None);
         let id_1 = Id::<AdapterId>::new("adapter id 1");
         let id_2 = Id::<AdapterId>::new("adapter id 2");
         let id_3 = Id::<AdapterId>::new("adapter id 3");
@@ -413,7 +414,7 @@ fn test_add_remove_tags() {
 		println!("# Starting with test with clear {}.
 ", clear);
 
-        let manager = AdapterManager::new();
+        let manager = AdapterManager::new(None);
         let id_1 = Id::<AdapterId>::new("adapter id 1");
         let id_2 = Id::<AdapterId>::new("adapter id 2");
 
@@ -775,7 +776,7 @@ fn test_fetch() {
 		println!("# Starting with test with clear {}.
 ", clear);
 
-        let manager = AdapterManager::new();
+        let manager = AdapterManager::new(None);
         let id_1 = Id::<AdapterId>::new("adapter id 1");
         let id_2 = Id::<AdapterId>::new("adapter id 2");
 
@@ -973,7 +974,7 @@ fn test_send() {
 		println!("# Starting with test with clear {}.
 ", clear);
 
-        let manager = AdapterManager::new();
+        let manager = AdapterManager::new(None);
         let id_1 = Id::<AdapterId>::new("adapter id 1");
         let id_2 = Id::<AdapterId>::new("adapter id 2");
 
@@ -1199,7 +1200,7 @@ fn test_watch() {
 		println!("# Starting with test with clear {}.
 ", clear);
 
-        let manager = AdapterManager::new();
+        let manager = AdapterManager::new(None);
         let id_1 = Id::<AdapterId>::new("adapter id 1");
         let id_2 = Id::<AdapterId>::new("adapter id 2");
 
