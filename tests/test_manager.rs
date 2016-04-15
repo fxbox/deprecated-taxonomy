@@ -44,6 +44,57 @@ pub fn remove_test_db() {
 }
 
 #[test]
+#[allow(unused_variables)]
+fn test_service_tags_in_db() {
+    // Simple RAII style struct to delete the test db.
+    struct AutoDeleteDb { };
+    impl Drop for AutoDeleteDb {
+        fn drop(&mut self) {
+            remove_test_db();
+        }
+    }
+    let auto_db = AutoDeleteDb { };
+
+    let manager = AdapterManager::new(Some(get_db_environment()));
+    let id_1 = Id::<AdapterId>::new("adapter id 1");
+    let service_id_1 = Id::<ServiceId>::new("service id 1");
+
+    let tag_id_1 = Id::<TagId>::new("tag id 1");
+    let tag_id_2 = Id::<TagId>::new("tag id 2");
+
+    let service_1 = Service {
+        id: service_id_1.clone(),
+        adapter: id_1.clone(),
+        tags: HashSet::new(),
+        properties: HashMap::new(),
+        getters: HashMap::new(),
+        setters: HashMap::new(),
+    };
+
+    manager.add_adapter(Arc::new(FakeAdapter::new(&id_1))).unwrap();
+    manager.add_service(service_1.clone()).unwrap();
+
+    manager.add_service_tags(vec![ServiceSelector::new().with_id(service_id_1.clone())],
+                             vec![tag_id_1.clone(), tag_id_2.clone()]);
+
+    manager.remove_service(&service_id_1).unwrap();
+    assert_eq!(manager.get_services(vec![]).len(), 0);
+
+    // Re-add the same service to check if we persisted the tags.
+    manager.add_service(service_1.clone()).unwrap();
+    let services = manager.get_services(vec![]);
+    assert_eq!(services.len(), 1);
+
+    let ref service = services[0];
+    assert_eq!(service.tags.len(), 2);
+    assert_eq!(service.tags.contains(&tag_id_1), true);
+    assert_eq!(service.tags.contains(&tag_id_2), true);
+
+    manager.remove_adapter(&id_1).unwrap();
+    manager.stop();
+}
+
+#[test]
 fn test_add_remove_adapter() {
     for clear in vec![false, true] {
 		println!("# Starting with test with clear {}.\n", clear);
