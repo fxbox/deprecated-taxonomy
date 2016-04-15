@@ -162,8 +162,18 @@ fn test_keys() {
 }
 
 #[test]
+#[allow(unused_variables)]
 fn storage_test() {
     use util::ServiceId;
+
+    // Simple RAII style struct to delete the test db.
+    struct AutoDeleteDb { };
+    impl Drop for AutoDeleteDb {
+        fn drop(&mut self) {
+            remove_test_db();
+        }
+    }
+    let auto_db = AutoDeleteDb { };
 
     let mut store = TagStorage::new(&get_db_environment());
 
@@ -232,6 +242,4 @@ fn storage_test() {
     store.remove_tags(&id1, &[Id::new("tag1"), Id::new("tag2"), Id::new("tag3")]).unwrap();
     tags = store.get_tags_for(&id1).unwrap();
     assert_eq!(tags.len(), 0);
-
-    remove_test_db();
 }
