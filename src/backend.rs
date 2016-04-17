@@ -410,6 +410,8 @@ impl State {
         where F: FnMut(&Arc<SubCell<ServiceData>>, &mut Option<TagStorage>) {
 
         let mut store = match self.db_path {
+            // Even if we have a path, TagStorage opens the underlying database lazily,
+            // so this is cheap.
             Some(ref path) => Some(TagStorage::new(&path)),
             None => None
         };
