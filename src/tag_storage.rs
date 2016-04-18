@@ -43,12 +43,12 @@ impl TagStorage {
 
     // Ensures that we have a database ready. If we fail to open or create the database,
     // this will panic.
-    fn ensure_db(&mut self) {
+    fn ensure_db(&mut self, msg: &str) {
         if self.db.is_some() {
             return;
         }
 
-        info!("Opening taxonomy tags database at {}", self.path.display());
+        info!("Opening taxonomy tags database at {} for {}", self.path.display(), msg);
         let db = Connection::open(self.path.clone()).unwrap_or_else(|err| {
             panic!("Unable to open taxonomy tags database: {}", err);
         });
@@ -80,7 +80,7 @@ impl TagStorage {
     }
 
     pub fn add_tag<T>(&mut self, id: &Id<T>, tag: &Id<TagId>) -> Result<()> {
-        self.ensure_db();
+        self.ensure_db(&format!("add_tag {} on {}", tag, id));
         try!(self.db.as_ref().unwrap().execute("INSERT OR IGNORE INTO tags VALUES ($1, $2, $3)",
                         &[&create_key(id, tag), &escape(&id), &escape(&tag)]));
         Ok(())
@@ -95,7 +95,7 @@ impl TagStorage {
     }
 
     pub fn remove_tag<T>(&mut self, id: &Id<T>, tag: &Id<TagId>) -> Result<()> {
-        self.ensure_db();
+        self.ensure_db(&format!("remove_tag {} on {}", tag, id));
         try!(self.db.as_ref().unwrap().execute("DELETE FROM tags WHERE key=$1", &[&create_key(id, tag)]));
         Ok(())
     }
@@ -108,13 +108,13 @@ impl TagStorage {
     }
 
     pub fn remove_all_tags_for<T>(&mut self, id: &Id<T>) -> Result<()> {
-        self.ensure_db();
+        self.ensure_db(&format!("remove_all_tags on {}", id));
         try!(self.db.as_ref().unwrap().execute("DELETE FROM tags WHERE id=$1", &[&escape(id)]));
         Ok(())
     }
 
     pub fn get_tags_for<T>(&mut self, id: &Id<T>) -> Result<Vec<Id<TagId>>> {
-        self.ensure_db();
+        self.ensure_db(&format!("get_tags_for {}", id));
         let mut subs = Vec::new();
         let mut stmt = try!(self.db.as_ref().unwrap().prepare("SELECT tag FROM tags WHERE id=$1"));
         let rows = try!(stmt.query(&[&escape(&id)]));
