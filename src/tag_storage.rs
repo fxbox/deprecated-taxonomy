@@ -260,18 +260,23 @@ mod tests {
                 remove_test_db();
             }
         }
-        //let auto_db = AutoDeleteDb { };
+        let auto_db = AutoDeleteDb { };
+
+        // Prepare the database by adding tags.
         let service_id = Id::<ServiceId>::new("service id");
+        let mut store = TagStorage::new(&get_db_environment());
+        for i in 0..100 {
+            let tag = Id::<TagId>::new(&format!("tag{}", i));
+            store.add_tag(&service_id, &tag).unwrap();
+        }
+
         b.iter(move || {
             let mut store = TagStorage::new(&get_db_environment());
-            let mut tags = vec![];
+            // Test how fast we remove the tags.
             for i in 0..100 {
-                tags.push(Id::<TagId>::new(&format!("tag{}", i)));
+                let tag = Id::<TagId>::new(&format!("tag{}", i));
+                store.remove_tag(&service_id, &tag).unwrap();
             }
-            //store.add_tag(&service_id, &tags[0]).unwrap();
-            /*for id in tags {
-                store.add_tag(&service_id, &id).unwrap();
-            }*/
         });
     }
 }
