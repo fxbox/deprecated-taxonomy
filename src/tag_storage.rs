@@ -57,9 +57,13 @@ impl TagStorage {
                     key    TEXT NOT NULL PRIMARY KEY,
                     id     TEXT NOT NULL,
                     tag    TEXT NOT NULL
-            )", &[]).unwrap_or_else(|err| {
+            ) WITHOUT ROWID", &[]).unwrap_or_else(|err| {
                 panic!("Unable to create taxonomy tags database: {}", err);
             });
+
+        /*db.execute("CREATE INDEX IF NOT EXISTS id_index ON tags(id)", &[]).unwrap_or_else(|err| {
+                panic!("Unable to create index on tags database: {}", err);
+            });*/
 
         self.db = Some(db);
     }
@@ -263,20 +267,23 @@ mod tests {
         let auto_db = AutoDeleteDb { };
 
         // Prepare the database by adding tags.
-        let service_id = Id::<ServiceId>::new("service id");
+        let service_id1 = Id::<ServiceId>::new("service id 1");
+        let service_id2 = Id::<ServiceId>::new("service id 2");
+        let service_id3 = Id::<ServiceId>::new("service id 3");
         let mut store = TagStorage::new(&get_db_environment());
         for i in 0..100 {
             let tag = Id::<TagId>::new(&format!("tag{}", i));
-            store.add_tag(&service_id, &tag).unwrap();
+            store.add_tag(&service_id1, &tag).unwrap();
+            store.add_tag(&service_id2, &tag).unwrap();
+            store.add_tag(&service_id3, &tag).unwrap();
         }
 
         b.iter(move || {
             let mut store = TagStorage::new(&get_db_environment());
-            // Test how fast we remove the tags.
-            for i in 0..100 {
-                let tag = Id::<TagId>::new(&format!("tag{}", i));
-                store.remove_tag(&service_id, &tag).unwrap();
-            }
+            // Test how fast we get the tags.
+            store.get_tags_for(&service_id1).unwrap();
+            store.get_tags_for(&service_id2).unwrap();
+            store.get_tags_for(&service_id3).unwrap();
         });
     }
 }
