@@ -17,7 +17,7 @@ fn escape<T>(string: &Id<T>) -> String {
 
 /// Creates a unique key for a (id, tag) tuple.
 /// `SQlite` integers are i64 so we turn the hashed u64 into a String...
-fn create_key<T>(id: &Id<T>, tag: &Id<TagId>) -> String {
+pub fn create_key<T>(id: &Id<T>, tag: &Id<TagId>) -> String {
     use std::hash::{ Hash, Hasher, SipHasher };
 
     let mut hasher = SipHasher::new();
@@ -43,12 +43,12 @@ impl TagStorage {
 
     // Ensures that we have a database ready. If we fail to open or create the database,
     // this will panic.
-    fn ensure_db(&mut self) {
+    fn ensure_db(&mut self, msg: &str) {
         if self.db.is_some() {
             return;
         }
 
-        info!("Opening taxonomy tags database at {}", self.path.display());
+        info!("Opening taxonomy tags database at {} for {}", self.path.display(), msg);
         let db = Connection::open(self.path.clone()).unwrap_or_else(|err| {
             panic!("Unable to open taxonomy tags database: {}", err);
         });
@@ -57,9 +57,13 @@ impl TagStorage {
                     key    TEXT NOT NULL PRIMARY KEY,
                     id     TEXT NOT NULL,
                     tag    TEXT NOT NULL
-            )", &[]).unwrap_or_else(|err| {
+            ) WITHOUT ROWID", &[]).unwrap_or_else(|err| {
                 panic!("Unable to create taxonomy tags database: {}", err);
             });
+
+        /*db.execute("CREATE INDEX IF NOT EXISTS id_index ON tags(id)", &[]).unwrap_or_else(|err| {
+                panic!("Unable to create index on tags database: {}", err);
+            });*/
 
         self.db = Some(db);
     }
@@ -80,7 +84,7 @@ impl TagStorage {
     }
 
     pub fn add_tag<T>(&mut self, id: &Id<T>, tag: &Id<TagId>) -> Result<()> {
-        self.ensure_db();
+        self.ensure_db(&format!("add_tag {} on {}", tag, id));
         try!(self.db.as_ref().unwrap().execute("INSERT OR IGNORE INTO tags VALUES ($1, $2, $3)",
                         &[&create_key(id, tag), &escape(&id), &escape(&tag)]));
         Ok(())
@@ -95,7 +99,7 @@ impl TagStorage {
     }
 
     pub fn remove_tag<T>(&mut self, id: &Id<T>, tag: &Id<TagId>) -> Result<()> {
-        self.ensure_db();
+        self.ensure_db(&format!("remove_tag {} on {}", tag, id));
         try!(self.db.as_ref().unwrap().execute("DELETE FROM tags WHERE key=$1", &[&create_key(id, tag)]));
         Ok(())
     }
@@ -108,13 +112,13 @@ impl TagStorage {
     }
 
     pub fn remove_all_tags_for<T>(&mut self, id: &Id<T>) -> Result<()> {
-        self.ensure_db();
+        self.ensure_db(&format!("remove_all_tags on {}", id));
         try!(self.db.as_ref().unwrap().execute("DELETE FROM tags WHERE id=$1", &[&escape(id)]));
         Ok(())
     }
 
     pub fn get_tags_for<T>(&mut self, id: &Id<T>) -> Result<Vec<Id<TagId>>> {
-        self.ensure_db();
+        self.ensure_db(&format!("get_tags_for {}", id));
         let mut subs = Vec::new();
         let mut stmt = try!(self.db.as_ref().unwrap().prepare("SELECT tag FROM tags WHERE id=$1"));
         let rows = try!(stmt.query(&[&escape(&id)]));
@@ -130,116 +134,156 @@ impl TagStorage {
 }
 
 #[cfg(test)]
-pub fn get_db_environment() -> PathBuf {
-    use libc::getpid;
-    use std::thread;
-    let tid = format!("{:?}", thread::current()).replace("(", "+").replace(")", "+");
-    let s = format!("./tagstore_db_test-{}-{}.sqlite", unsafe { getpid() }, tid.replace("/", "42"));
-    PathBuf::from(s)
-}
+mod tests {
+    extern crate test;
 
-#[cfg(test)]
-pub fn remove_test_db() {
-    use std::fs;
+    use std::path::PathBuf;
+    use self::test::Bencher;
+    use util::{ Id, ServiceId, TagId };
+    use super::*;
 
-    let dbfile = get_db_environment();
-    match fs::remove_file(dbfile.clone()) {
-        Err(e) => panic!("Error {} cleaning up {}", e, dbfile.display()),
-        _ => assert!(true)
+    pub fn get_db_environment() -> PathBuf {
+        use libc::getpid;
+        use std::thread;
+        let tid = format!("{:?}", thread::current()).replace("(", "+").replace(")", "+");
+        let s = format!("./tagstore_db_test-{}-{}.sqlite", unsafe { getpid() }, tid.replace("/", "42"));
+        PathBuf::from(s)
     }
-}
 
-#[test]
-fn test_keys() {
-    use util::ServiceId;
+    pub fn remove_test_db() {
+        use std::fs;
 
-    let key1 = create_key(&Id::<ServiceId>::new("abc"), &Id::<TagId>::new("defgh"));
-    let key1_1 = create_key(&Id::<ServiceId>::new("abc"), &Id::<TagId>::new("defgh"));
-    assert_eq!(key1, key1_1);
-
-    let key2 = create_key(&Id::<ServiceId>::new("abcd"), &Id::<TagId>::new("efgh"));
-    assert!(key2 != key1);
-}
-
-#[test]
-#[allow(unused_variables)]
-fn storage_test() {
-    use util::ServiceId;
-
-    // Simple RAII style struct to delete the test db.
-    struct AutoDeleteDb { };
-    impl Drop for AutoDeleteDb {
-        fn drop(&mut self) {
-            remove_test_db();
+        let dbfile = get_db_environment();
+        match fs::remove_file(dbfile.clone()) {
+            Err(e) => panic!("Error {} cleaning up {}", e, dbfile.display()),
+            _ => assert!(true)
         }
     }
-    let auto_db = AutoDeleteDb { };
 
-    let mut store = TagStorage::new(&get_db_environment());
+    #[test]
+    fn test_keys() {
+        use util::ServiceId;
 
-    let id1 = Id::<ServiceId>::new("first id");
-    let id2 = Id::<ServiceId>::new("second id");
+        let key1 = create_key(&Id::<ServiceId>::new("abc"), &Id::<TagId>::new("defgh"));
+        let key1_1 = create_key(&Id::<ServiceId>::new("abc"), &Id::<TagId>::new("defgh"));
+        assert_eq!(key1, key1_1);
 
-    // Start with an empty db.
-    let mut tags = store.get_tags_for(&id1).unwrap();
-    assert_eq!(tags.len(), 0);
+        let key2 = create_key(&Id::<ServiceId>::new("abcd"), &Id::<TagId>::new("efgh"));
+        assert!(key2 != key1);
+    }
 
-    // Add a first tag.
-    store.add_tag(&id1, &Id::new("tag1")).unwrap();
-    tags = store.get_tags_for(&id1).unwrap();
-    assert_eq!(tags.len(), 1);
+    #[test]
+    #[allow(unused_variables)]
+    fn storage_test() {
+        use util::ServiceId;
 
-    // Adding the same one is a no-op.
-    store.add_tag(&id1, &Id::new("tag1")).unwrap();
-    tags = store.get_tags_for(&id1).unwrap();
-    assert_eq!(tags.len(), 1);
+        // Simple RAII style struct to delete the test db.
+        struct AutoDeleteDb { };
+        impl Drop for AutoDeleteDb {
+            fn drop(&mut self) {
+                remove_test_db();
+            }
+        }
+        let auto_db = AutoDeleteDb { };
 
-    // Adding a new tag.
-    store.add_tag(&id1, &Id::new("tag2")).unwrap();
-    tags = store.get_tags_for(&id1).unwrap();
-    assert_eq!(tags.len(), 2);
-    assert_eq!(tags, [Id::new("tag1"), Id::new("tag2")]);
+        let mut store = TagStorage::new(&get_db_environment());
 
-    // Add the same tags with a different id.
-    store.add_tag(&id2, &Id::new("tag1")).unwrap();
-    store.add_tag(&id2, &Id::new("tag2")).unwrap();
-    tags = store.get_tags_for(&id1).unwrap();
-    assert_eq!(tags.len(), 2);
-    assert_eq!(tags, [Id::new("tag1"), Id::new("tag2")]);
-    tags = store.get_tags_for(&id2).unwrap();
-    assert_eq!(tags.len(), 2);
-    assert_eq!(tags, [Id::new("tag1"), Id::new("tag2")]);
+        let id1 = Id::<ServiceId>::new("first id");
+        let id2 = Id::<ServiceId>::new("second id");
 
-    // Non existing id.
-    store.remove_tag(&Id::<ServiceId>::new("id3"), &Id::new("some tag")).unwrap();
+        // Start with an empty db.
+        let mut tags = store.get_tags_for(&id1).unwrap();
+        assert_eq!(tags.len(), 0);
 
-    // Remove some tags from id2.
-    store.remove_tag(&id2, &Id::new("tag1")).unwrap();
-    tags = store.get_tags_for(&id2).unwrap();
-    assert_eq!(tags.len(), 1);
-    assert_eq!(tags, [Id::new("tag2")]);
+        // Add a first tag.
+        store.add_tag(&id1, &Id::new("tag1")).unwrap();
+        tags = store.get_tags_for(&id1).unwrap();
+        assert_eq!(tags.len(), 1);
 
-    store.remove_tag(&id2, &Id::new("tag2")).unwrap();
-    tags = store.get_tags_for(&id2).unwrap();
-    assert_eq!(tags.len(), 0);
+        // Adding the same one is a no-op.
+        store.add_tag(&id1, &Id::new("tag1")).unwrap();
+        tags = store.get_tags_for(&id1).unwrap();
+        assert_eq!(tags.len(), 1);
 
-    // id1 should be unchanged.
-    tags = store.get_tags_for(&id1).unwrap();
-    assert_eq!(tags.len(), 2);
-    assert_eq!(tags, [Id::new("tag1"), Id::new("tag2")]);
+        // Adding a new tag.
+        store.add_tag(&id1, &Id::new("tag2")).unwrap();
+        tags = store.get_tags_for(&id1).unwrap();
+        assert_eq!(tags.len(), 2);
+        assert_eq!(tags, [Id::new("tag1"), Id::new("tag2")]);
 
-    // Remove all the id1 tags.
-    store.remove_all_tags_for(&id1).unwrap();
-    tags = store.get_tags_for(&id1).unwrap();
-    assert_eq!(tags.len(), 0);
+        // Add the same tags with a different id.
+        store.add_tag(&id2, &Id::new("tag1")).unwrap();
+        store.add_tag(&id2, &Id::new("tag2")).unwrap();
+        tags = store.get_tags_for(&id1).unwrap();
+        assert_eq!(tags.len(), 2);
+        assert_eq!(tags, [Id::new("tag1"), Id::new("tag2")]);
+        tags = store.get_tags_for(&id2).unwrap();
+        assert_eq!(tags.len(), 2);
+        assert_eq!(tags, [Id::new("tag1"), Id::new("tag2")]);
 
-    // Adding multiple tags at once.
-    store.add_tags(&id1, &[Id::new("tag1"), Id::new("tag2"), Id::new("tag3")]).unwrap();
-    tags = store.get_tags_for(&id1).unwrap();
-    assert_eq!(tags.len(), 3);
+        // Non existing id.
+        store.remove_tag(&Id::<ServiceId>::new("id3"), &Id::new("some tag")).unwrap();
 
-    // Removing multiple tags at once.
-    store.remove_tags(&id1, &[Id::new("tag1"), Id::new("tag2"), Id::new("tag3")]).unwrap();
-    tags = store.get_tags_for(&id1).unwrap();
-    assert_eq!(tags.len(), 0);
+        // Remove some tags from id2.
+        store.remove_tag(&id2, &Id::new("tag1")).unwrap();
+        tags = store.get_tags_for(&id2).unwrap();
+        assert_eq!(tags.len(), 1);
+        assert_eq!(tags, [Id::new("tag2")]);
+
+        store.remove_tag(&id2, &Id::new("tag2")).unwrap();
+        tags = store.get_tags_for(&id2).unwrap();
+        assert_eq!(tags.len(), 0);
+
+        // id1 should be unchanged.
+        tags = store.get_tags_for(&id1).unwrap();
+        assert_eq!(tags.len(), 2);
+        assert_eq!(tags, [Id::new("tag1"), Id::new("tag2")]);
+
+        // Remove all the id1 tags.
+        store.remove_all_tags_for(&id1).unwrap();
+        tags = store.get_tags_for(&id1).unwrap();
+        assert_eq!(tags.len(), 0);
+
+        // Adding multiple tags at once.
+        store.add_tags(&id1, &[Id::new("tag1"), Id::new("tag2"), Id::new("tag3")]).unwrap();
+        tags = store.get_tags_for(&id1).unwrap();
+        assert_eq!(tags.len(), 3);
+
+        // Removing multiple tags at once.
+        store.remove_tags(&id1, &[Id::new("tag1"), Id::new("tag2"), Id::new("tag3")]).unwrap();
+        tags = store.get_tags_for(&id1).unwrap();
+        assert_eq!(tags.len(), 0);
+    }
+
+    #[bench]
+    #[allow(unused_variables)]
+    fn bench_db(b: &mut Bencher) {
+        struct AutoDeleteDb { };
+        impl Drop for AutoDeleteDb {
+            fn drop(&mut self) {
+                remove_test_db();
+            }
+        }
+        let auto_db = AutoDeleteDb { };
+
+        // Prepare the database by adding tags.
+        let service_id1 = Id::<ServiceId>::new("service id 1");
+        let service_id2 = Id::<ServiceId>::new("service id 2");
+        let service_id3 = Id::<ServiceId>::new("service id 3");
+        let mut store = TagStorage::new(&get_db_environment());
+        for i in 0..100 {
+            let tag = Id::<TagId>::new(&format!("tag{}", i));
+            store.add_tag(&service_id1, &tag).unwrap();
+            store.add_tag(&service_id2, &tag).unwrap();
+            store.add_tag(&service_id3, &tag).unwrap();
+        }
+
+        b.iter(move || {
+            let mut store = TagStorage::new(&get_db_environment());
+            // Test how fast we get the tags.
+            store.get_tags_for(&service_id1).unwrap();
+            store.get_tags_for(&service_id2).unwrap();
+            store.get_tags_for(&service_id3).unwrap();
+        });
+    }
 }

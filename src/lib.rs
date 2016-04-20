@@ -5,6 +5,9 @@
 // To prevent clippy being noisy with derive(...)
 #![allow(used_underscore_binding)]
 
+// Needed for benchmarks.
+#![feature(test)]
+
 #[macro_use]
 extern crate lazy_static;
 
