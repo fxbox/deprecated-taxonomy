@@ -1,8 +1,5 @@
-# FoxBox Taxonomy
+# Foxbox Taxonomy
 
-[![Build Status](https://api.travis-ci.org/fxbox/taxonomy.svg?branch=master)](https://travis-ci.org/fxbox/taxonomy)
-[![Coverage Status](https://coveralls.io/repos/github/fxbox/taxonomy/badge.svg?branch=master)](https://coveralls.io/github/fxbox/taxonomy?branch=master)
-[![Clippy Linting Result](http://clippy.bashy.io/github/fxbox/taxonomy/master/badge.svg)](http://clippy.bashy.io/github/fxbox/taxonomy/master/log)
+[![You shall not pass](http://cdn.meme.am/instances/500x/62331333.jpg)](https://github.com/fxbox/foxbox/tree/master/components/taxonomy)
 
-Specifications-as-code for the high-level API to manipulate devices in
-the FoxBox project.
+This repository has been moved into a [component of  foxbox](https://github.com/fxbox/foxbox/tree/master/components/taxonomy). Please submit [your issues](https://github.com/fxbox/foxbox/issues) and [your pull requests](https://github.com/fxbox/foxbox/pulls) to that repo.
