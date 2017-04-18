@@ -26,6 +26,7 @@ use transformable_channels::mpsc::*;
 ///
 /// This implementation is `Sync` and supports any number of concurrent
 /// readers *or* a single writer.
+#[derive(Clone)]
 pub struct AdapterManager {
     /// The in-memory database is protected by a read-write lock.
     ///
